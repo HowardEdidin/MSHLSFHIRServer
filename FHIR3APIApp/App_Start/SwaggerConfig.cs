@@ -1,11 +1,11 @@
 using System.Web.Http;
 using WebActivatorEx;
-using FHIR3APIApp;
+using FHIR4APIApp;
 using Swashbuckle.Application;
 
 [assembly: PreApplicationStartMethod(typeof(SwaggerConfig), "Register")]
 
-namespace FHIR3APIApp
+namespace FHIR4APIApp
 {
     public class SwaggerConfig
     {
@@ -32,7 +32,7 @@ namespace FHIR3APIApp
                         // hold additional metadata for an API. Version and title are required but you can also provide
                         // additional fields by chaining methods off SingleApiVersion.
                         //
-                        c.SingleApiVersion("v1", "FHIR3APIApp");
+                        c.SingleApiVersion("v1", "FHIR4APIApp");
 
                         // If you want the output Swagger docs to be indented properly, enable the "PrettyPrint" option.
                         //

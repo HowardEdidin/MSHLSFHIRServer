@@ -13,17 +13,13 @@
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Web.Http;
-using FHIR3APIApp.Utils;
-using FHIR3APIApp.Providers;
-using Microsoft.Practices.Unity;
+using FHIR4APIApp.Providers;
+using FHIR4APIApp.Utils;
 using Unity;
 using Unity.Lifetime;
 
-namespace FHIR3APIApp
+namespace FHIR4APIApp
 {
     public static class WebApiConfig
     {
@@ -39,7 +35,7 @@ namespace FHIR3APIApp
             config.EnableCors();
             // Web API routes
             config.MapHttpAttributeRoutes();
-            var fred = FHIR3APIApp.Utils.FhirParmMapper.Instance;
+            var fred = FhirParmMapper.Instance;
         }
     }
 }

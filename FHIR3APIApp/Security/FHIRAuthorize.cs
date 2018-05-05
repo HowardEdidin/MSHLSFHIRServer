@@ -19,7 +19,7 @@ using System.Web.Http;
 using System.Web.Http.Controllers;
 using Microsoft.Azure;
 
-namespace FHIR3APIApp.Security
+namespace FHIR4APIApp.Security
 {
 	public class FhirAuthorize : AuthorizeAttribute
 	{

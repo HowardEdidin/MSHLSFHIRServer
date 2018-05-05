@@ -16,7 +16,7 @@
 using System.Web;
 using System.Web.Http;
 
-namespace FHIR3APIApp
+namespace FHIR4APIApp
 {
 	public class WebApiApplication : HttpApplication
 	{

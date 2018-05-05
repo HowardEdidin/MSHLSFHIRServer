@@ -13,15 +13,14 @@
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-using FHIR3APIApp;
 using Microsoft.Owin;
 using Owin;
 
 [assembly: OwinStartup(typeof(Startup))]
 
-namespace FHIR3APIApp
+namespace FHIR4APIApp
 {
-	public class Startup
+	public partial class Startup
 	{
 		public void Configuration(IAppBuilder app)
 		{

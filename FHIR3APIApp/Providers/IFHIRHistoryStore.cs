@@ -16,7 +16,7 @@
 using System.Collections.Generic;
 using Hl7.Fhir.Model;
 
-namespace FHIR3APIApp.Providers
+namespace FHIR4APIApp.Providers
 {
 	public interface IFhirHistoryStore
 	{

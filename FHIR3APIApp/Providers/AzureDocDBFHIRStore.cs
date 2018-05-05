@@ -18,7 +18,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Net;
 using System.Threading.Tasks;
-using FHIR3APIApp.Utils;
+using FHIR4APIApp.Utils;
 using Hl7.Fhir.Model;
 using Hl7.Fhir.Serialization;
 using Microsoft.Azure;
@@ -29,7 +29,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Resource = Hl7.Fhir.Model.Resource;
 
-namespace FHIR3APIApp.Providers
+namespace FHIR4APIApp.Providers
 {
 	public class AzureDocDbfhirStore : IFhirStore
 	{

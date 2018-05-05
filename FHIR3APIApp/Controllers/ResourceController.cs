@@ -23,15 +23,15 @@ using System.Threading.Tasks;
 using System.Web;
 using System.Web.Http;
 using System.Web.Http.Cors;
-using FHIR3APIApp.Models;
-using FHIR3APIApp.Providers;
-using FHIR3APIApp.Security;
-using FHIR3APIApp.Utils;
+using FHIR4APIApp.Models;
+using FHIR4APIApp.Providers;
+using FHIR4APIApp.Security;
+using FHIR4APIApp.Utils;
 using Hl7.Fhir.Model;
 using Hl7.Fhir.Serialization;
 using Microsoft.Azure;
 
-namespace FHIR3APIApp.Controllers
+namespace FHIR4APIApp.Controllers
 {
 	[EnableCors("*", "*", "*")]
 	[FhirAuthorize]

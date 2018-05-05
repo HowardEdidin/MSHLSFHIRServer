@@ -19,7 +19,7 @@ using System.Web.Http.Dependencies;
 using Unity;
 using Unity.Exceptions;
 
-namespace FHIR3APIApp.Utils
+namespace FHIR4APIApp.Utils
 {
 	public class UnityResolver : IDependencyResolver
 	{

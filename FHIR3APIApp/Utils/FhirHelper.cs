@@ -22,12 +22,12 @@ using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using System.Web;
-using FHIR3APIApp.Providers;
+using FHIR4APIApp.Providers;
 using Hl7.Fhir.Model;
 using Hl7.Fhir.Serialization;
 using Newtonsoft.Json.Linq;
 
-namespace FHIR3APIApp.Utils
+namespace FHIR4APIApp.Utils
 {
 	public static class FhirHelper
 	{
@@ -71,7 +71,7 @@ namespace FHIR3APIApp.Utils
 			};
 			cs.Contact.Add(cc);
 			cs.Kind = CapabilityStatement.CapabilityStatementKind.Instance;
-			cs.Date = "2018-03-08";
+			cs.Date = "2018-05-06";
 			cs.Description =
 				new Markdown("This is the FHIR capability statement for the HLS Team API Application FHIR Server 3.0.1");
 			cs.Software =
@@ -79,7 +79,7 @@ namespace FHIR3APIApp.Utils
 				{
 					Name = "Experimental Microsoft HLS Team FHIR Server API App",
 					Version = "0.9.1",
-					ReleaseDate = "2018-03-08"
+					ReleaseDate = "2018-05-06"
 				};
 			cs.Implementation = new CapabilityStatement.ImplementationComponent {Description = "MSHLS Experimental FHIR Server"};
 			var endpos = url.ToLower().LastIndexOf("/metadata", StringComparison.Ordinal);
@@ -138,7 +138,7 @@ namespace FHIR3APIApp.Utils
 
 		public static Type ResourceTypeFromString(string resourceType)
 		{
-			return Type.GetType("Hl7.Fhir.Model." + resourceType + ",Hl7.Fhir.STU3.Core");
+			return Type.GetType("Hl7.Fhir.Model." + resourceType + ",Hl7.Fhir.R4.Core");
 		}
 
 		public static string GetResourceTypeString(Resource r)

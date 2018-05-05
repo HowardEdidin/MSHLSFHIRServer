@@ -20,9 +20,9 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
-using FHIR3APIApp.Providers;
+using FHIR4APIApp.Providers;
 
-namespace FHIR3APIApp.Utils
+namespace FHIR4APIApp.Utils
 {
 	public class FhirParmMapper
 	{
@@ -33,7 +33,7 @@ namespace FHIR3APIApp.Utils
 		private FhirParmMapper()
 		{
 			var assembly = Assembly.GetExecutingAssembly();
-			const string resourceName = "FHIR3APIApp.FHIRParameterMappings.txt";
+			const string resourceName = "FHIR4APIApp.FHIRParameterMappings.txt";
 			using (var stream = assembly.GetManifestResourceStream(resourceName))
 			using (var reader = new StreamReader(stream ?? throw new InvalidOperationException()))
 			{

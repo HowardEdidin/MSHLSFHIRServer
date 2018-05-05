@@ -26,7 +26,7 @@ using Microsoft.Azure;
 using Microsoft.WindowsAzure.Storage;
 using Microsoft.WindowsAzure.Storage.Blob;
 
-namespace FHIR3APIApp.Providers
+namespace FHIR4APIApp.Providers
 {
 	public class ResourceThreadContext
 	{

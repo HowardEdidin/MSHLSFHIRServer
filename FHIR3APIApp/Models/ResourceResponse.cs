@@ -1,6 +1,6 @@
 ﻿using Hl7.Fhir.Model;
 
-namespace FHIR3APIApp.Models
+namespace FHIR4APIApp.Models
 {
 	public class ResourceResponse
 	{

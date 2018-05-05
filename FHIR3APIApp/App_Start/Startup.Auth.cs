@@ -18,9 +18,9 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.Owin.Security.ActiveDirectory;
 using Owin;
 
-namespace AuthorizationServer
+namespace FHIR4APIApp
 {
-	public class Startup
+	public partial class Startup
 	{
 		public void ConfigureAuth(IAppBuilder app)
 		{
