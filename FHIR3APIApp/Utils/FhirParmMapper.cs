@@ -12,118 +12,96 @@
 * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
+
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Web;
-using System.IO;
-using System.Reflection;
 using System.Collections.Specialized;
+using System.IO;
+using System.Linq;
+using System.Reflection;
 using System.Text;
 using FHIR3APIApp.Providers;
+
 namespace FHIR3APIApp.Utils
 {
-    public class FhirParmMapper
-    {
-        private static volatile FhirParmMapper instance;
-        private static object syncRoot = new Object();
-        private Dictionary<string, string> _pmap = new Dictionary<string, string>();
-        private FhirParmMapper()
-        {
-            var assembly = Assembly.GetExecutingAssembly();
-            var resourceName = "FHIR3APIApp.FHIRParameterMappings.txt";
-            using (Stream stream = assembly.GetManifestResourceStream(resourceName))
-            using (StreamReader reader = new StreamReader(stream))
-            {
-                string s = null;
-                while ((s=reader.ReadLine()) !=null)
-                {
-                    if (!s.StartsWith("#")) {
-                        int split = s.IndexOf('=');
-                        if (split > -1)
-                        {
-                            string name = s.Substring(0, split);
-                            string value = s.Substring(split+1);
-                            _pmap.Add(name, value);
-                        }
-                    }
-                }
-            }
+	public class FhirParmMapper
+	{
+		private static volatile FhirParmMapper _instance;
+		private static readonly object SyncRoot = new object();
+		private readonly Dictionary<string, string> _pmap = new Dictionary<string, string>();
 
-        }
-        public string GenerateQuery(IFHIRStore store, string resourceType, NameValueCollection parms)
-        {
-            StringBuilder where = new StringBuilder();
-            //Select statement for Resource
-            StringBuilder select = new StringBuilder();
-            select.Append(store.SelectAllQuery);
-            foreach (string key in parms)
-            {
-                string value = parms[key];
-                string parmdef = null;
-                _pmap.TryGetValue((resourceType + "." + key), out parmdef);
-                if (parmdef != null)
-                {
+		private FhirParmMapper()
+		{
+			var assembly = Assembly.GetExecutingAssembly();
+			const string resourceName = "FHIR3APIApp.FHIRParameterMappings.txt";
+			using (var stream = assembly.GetManifestResourceStream(resourceName))
+			using (var reader = new StreamReader(stream ?? throw new InvalidOperationException()))
+			{
+				string s;
+				while ((s = reader.ReadLine()) != null)
+					if (!s.StartsWith("#"))
+					{
+						var split = s.IndexOf('=');
+						if (split <= -1) continue;
+						var name = s.Substring(0, split);
+						var value = s.Substring(split + 1);
+						_pmap.Add(name, value);
+					}
+			}
+		}
 
-                    //TODO Handle Setting up Parm Type and process value for prefix and modifiers
-                    //Add JOINS to select
-                    string join = null;
-                    _pmap.TryGetValue(resourceType + "." + key + ".join", out join);
-                    if (join != null)
-                    {
-                        if (!select.ToString().Contains(join))
-                            select.Append(" " + join);
-                    }
-                    //Add Where clauses/bind values
-                    string querypiece = null;
-                    _pmap.TryGetValue(resourceType + "." + key + ".default",out querypiece);
-                    if (querypiece != null)
-                    {
-                        if (where.Length == 0)
-                        {
-                            where.Append(" WHERE (");
-                        }
-                        else
-                        {
-                            where.Append(" and (");
-                        }
-                        //Handle bind values single or multiple
-                        string[] vals = value.Split(',');
-                        foreach (string s in vals)
-                        {
-                            string currentpiece = querypiece;
-                            string[] t = s.Split('|');
-                            int x = 0;
-                            foreach (string u in t)
-                            {
-                                currentpiece = currentpiece.Replace(("~v" + x++ + "~"), u);
-                            
-                            }
-                            where.Append("(" + currentpiece + ") OR ");
+		public static FhirParmMapper Instance
+		{
+			get
+			{
+				if (_instance == null)
+					lock (SyncRoot)
+					{
+						if (_instance == null)
+							_instance = new FhirParmMapper();
+					}
 
-                        }
-                        where.Remove(where.Length - 3, 3);
-                        where.Append(")");
-                        
-                    }
-                }
-            }
-            return select.ToString() + where.ToString();
-        }
-        public static FhirParmMapper Instance
-        {
-            get
-            {
-                if (instance==null)
-                {
-                    lock (syncRoot)
-                    {
-                        if (instance==null)
-                            instance = new FhirParmMapper();
-                    }
-                }
-                return instance;
-            }
-        }
-    }
+				return _instance;
+			}
+		}
+
+		public string GenerateQuery(IFhirStore store, string resourceType, NameValueCollection parms)
+		{
+			var where = new StringBuilder();
+			//Select statement for Resource
+			var select = new StringBuilder();
+			select.Append(store.SelectAllQuery);
+			foreach (string key in parms)
+			{
+				var value = parms[key];
+				_pmap.TryGetValue(resourceType + "." + key, out var parmdef);
+				if (parmdef == null) continue;
+				//TODO Handle Setting up Parm Type and process value for prefix and modifiers
+				//Add JOINS to select
+				_pmap.TryGetValue(resourceType + "." + key + ".join", out var join);
+				if (join != null)
+					if (!select.ToString().Contains(join))
+						select.Append(" " + join);
+				//Add Where clauses/bind values
+				_pmap.TryGetValue(resourceType + "." + key + ".default", out var querypiece);
+				if (querypiece == null) continue;
+				where.Append(where.Length == 0 ? " WHERE (" : " and (");
+				//Handle bind values single or multiple
+				var vals = value.Split(',');
+				foreach (var s in vals)
+				{
+					var currentpiece = querypiece;
+					var t = s.Split('|');
+					var x = 0;
+					currentpiece = t.Aggregate(currentpiece, (current, u) => current.Replace("~v" + x++ + "~", u));
+					where.Append("(" + currentpiece + ") OR ");
+				}
+
+				where.Remove(where.Length - 3, 3);
+				where.Append(")");
+			}
+
+			return select + where.ToString();
+		}
+	}
 }

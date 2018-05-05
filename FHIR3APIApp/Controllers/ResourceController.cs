@@ -15,417 +15,452 @@
 
 using System;
 using System.Collections.Generic;
-using System.Collections.Specialized;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Web.Http;
-using Hl7.Fhir.Serialization;
-using Hl7.Fhir.Model;
 using System.Text;
-using Microsoft.Azure;
 using System.Threading.Tasks;
 using System.Web;
+using System.Web.Http;
 using System.Web.Http.Cors;
 using FHIR3APIApp.Models;
 using FHIR3APIApp.Providers;
-using FHIR3APIApp.Utils;
 using FHIR3APIApp.Security;
+using FHIR3APIApp.Utils;
+using Hl7.Fhir.Model;
+using Hl7.Fhir.Serialization;
+using Microsoft.Azure;
+
 namespace FHIR3APIApp.Controllers
 {
-    [EnableCors(origins: "*", headers: "*", methods: "*")]
-    [FHIRAuthorize]
-    [RoutePrefix("")]
-    public class ResourceController : ApiController
-    {
+	[EnableCors("*", "*", "*")]
+	[FhirAuthorize]
+	[RoutePrefix("")]
+	public class ResourceController : ApiController
+	{
+		private const string Fhircontenttypejson = "application/fhir+json;charset=utf-8";
+		private const string Fhircontenttypexml = "application/fhir+xml;charset=utf-8";
 
-        private IFHIRStore storage;
-        private static string FHIRCONTENTTYPEJSON = "application/fhir+json;charset=utf-8";
-        private static string FHIRCONTENTTYPEXML = "application/fhir+xml;charset=utf-8";
-        private readonly string parsemode = CloudConfigurationManager.GetSetting("FHIRParserMode");
-        private bool _strict = false;
-        private FhirJsonParser jsonparser = null;
-        private FhirXmlParser xmlparser = null;
-        private ParserSettings parsersettings = null;
+		private readonly FhirJsonParser _jsonparser;
+		//private readonly string _parsemode = CloudConfigurationManager.GetSetting("FHIRParserMode");
 
-        //TODO: Inject Storage Implementation
-        public ResourceController(IFHIRStore store) {
-            string s = CloudConfigurationManager.GetSetting("FHIRParserMode");
-            _strict = (s == null || s.Equals("strict", StringComparison.CurrentCultureIgnoreCase) ? true : false);
-            this.storage = store;
-            parsersettings = new ParserSettings();
-            parsersettings.AcceptUnknownMembers = !_strict;
-            parsersettings.AllowUnrecognizedEnums = !_strict;
-            jsonparser = new FhirJsonParser(parsersettings);
-            xmlparser = new FhirXmlParser(parsersettings);
-        }
-        private async Task<ResourceResponse> ProcessSingleResource(Resource p,string resourceType,string matchversionid=null)
-        {
-            
-            //Version conflict detection
-            if (!String.IsNullOrEmpty(matchversionid))
-            {
-                var cv = await storage.LoadFHIRResource(p.Id, resourceType);
-                if (cv == null || !matchversionid.Equals(cv.Meta.VersionId))
-                {
-                    OperationOutcome oo = new OperationOutcome();
-                    oo.Issue = new System.Collections.Generic.List<OperationOutcome.IssueComponent>();
-                    OperationOutcome.IssueComponent ic = new OperationOutcome.IssueComponent();
-                    ic.Severity = OperationOutcome.IssueSeverity.Error;
-                    ic.Code = OperationOutcome.IssueType.Exception;
-                    ic.Diagnostics = "Version conflict current resource version of " + resourceType + "/" + p.Id + " is " + cv.Meta.VersionId;
-                    oo.Issue.Add(ic);
-                    return new ResourceResponse(oo, -1);
-                }
-            }
-            //Prepare for Insert/update and Version
-            if (String.IsNullOrEmpty(p.Id)) p.Id = Guid.NewGuid().ToString();
-            p.Meta = new Meta();
-            p.Meta.VersionId = Guid.NewGuid().ToString();
-            p.Meta.LastUpdated = DateTimeOffset.UtcNow;
-            var rslt = await storage.UpsertFHIRResource(p);
-            return new ResourceResponse(p, rslt);
-        }
-        private async Task<HttpResponseMessage> Upsert(string resourceType,string headerid=null)
-        {
-            try
-            {
+		private readonly IFhirStore _storage;
+		private readonly FhirXmlParser _xmlparser;
 
-                string raw = await Request.Content.ReadAsStringAsync();
-                BaseFhirParser parser = null;
-                if (IsContentTypeJSON) parser = jsonparser;
-                else if (IsContentTypeXML) parser = xmlparser;
-                else throw new Exception("Invalid Content-Type must be application/fhir+json or application/fhir+xml");
-                var reader = IsContentTypeJSON ? FhirJsonParser.CreateFhirReader(raw) : FhirXmlParser.CreateFhirReader(raw, false);
-                var p = (Resource)parser.Parse(reader, FhirHelper.ResourceTypeFromString(resourceType));
-                ResourceType rt;
-                Enum.TryParse(resourceType, out rt);
-                if (p.ResourceType != rt)
-                {
-                    OperationOutcome oo = new OperationOutcome();
-                    oo.Issue = new System.Collections.Generic.List<OperationOutcome.IssueComponent>();
-                    OperationOutcome.IssueComponent ic = new OperationOutcome.IssueComponent();
-                    ic.Severity = OperationOutcome.IssueSeverity.Error;
-                    ic.Code = OperationOutcome.IssueType.Exception;
-                    ic.Diagnostics = "Resource provide is not of type " + resourceType;
-                    oo.Issue.Add(ic);
-                    var respconf = this.Request.CreateResponse(HttpStatusCode.BadRequest);
-                    respconf.Content = new StringContent(SerializeResponse(oo), Encoding.UTF8);
-                    respconf.Content.Headers.LastModified = DateTimeOffset.Now;
-                    respconf.Headers.TryAddWithoutValidation("Accept", CurrentAcceptType);
-                    respconf.Content.Headers.TryAddWithoutValidation("Content-Type", IsAccceptTypeJSON ? FHIRCONTENTTYPEJSON : FHIRCONTENTTYPEXML);
-                    return respconf;
-                }
-                if (String.IsNullOrEmpty(p.Id) && headerid != null) p.Id = headerid;
-                //Store resource regardless of type
-                var dbresp = await ProcessSingleResource(p, resourceType, IsMatchVersionId);
-                p = dbresp.Resource;
-                var response = this.Request.CreateResponse(dbresp.Response==1 ? HttpStatusCode.Created : HttpStatusCode.OK);
-                response.Content = new StringContent("", Encoding.UTF8);
-                response.Content.Headers.LastModified = p.Meta.LastUpdated;
-                response.Headers.Add("Location", Request.RequestUri.AbsoluteUri + (headerid==null ? "/" + p.Id :""));
-                response.Headers.Add("ETag", "W/\"" + p.Meta.VersionId + "\"");
-                
-                //Extract and Save each Resource in bundle if it's a batch type
-                if (p.ResourceType==ResourceType.Bundle && ((Bundle)p).Type==Bundle.BundleType.Batch)
-                {
-                    Bundle source = (Bundle)p;
-                    /*Bundle results = new Bundle();
-                    results.Id = Guid.NewGuid().ToString();
-                    results.Type = Bundle.BundleType.Searchset;
-                    results.Total = source.Entry.Count();
-                    results.Link = new System.Collections.Generic.List<Bundle.LinkComponent>();
-                    results.Link.Add(new Bundle.LinkComponent() { Url = Request.RequestUri.AbsoluteUri, Relation = "original" });
-                    results.Entry = new System.Collections.Generic.List<Bundle.EntryComponent>();*/
-                    foreach (Bundle.EntryComponent ec in source.Entry)
-                    {
-                        var rslt = await ProcessSingleResource(ec.Resource, Enum.GetName(typeof(Hl7.Fhir.Model.ResourceType), ec.Resource.ResourceType));
-                        //results.Entry.Add(new Bundle.EntryComponent() { Resource = rslt.Resource, FullUrl = FhirHelper.GetFullURL(Request, rslt.Resource) });
-                    }
-                }
-                return response;
-            }
-            catch (Exception e)
-            {
-                OperationOutcome oo = new OperationOutcome();
-                oo.Issue = new System.Collections.Generic.List<OperationOutcome.IssueComponent>();
-                OperationOutcome.IssueComponent ic = new OperationOutcome.IssueComponent();
-                ic.Severity = OperationOutcome.IssueSeverity.Error;
-                ic.Code = OperationOutcome.IssueType.Exception;
-                ic.Diagnostics = e.Message;
-                oo.Issue.Add(ic);
-                var response = this.Request.CreateResponse(HttpStatusCode.BadRequest);
-                response.Headers.TryAddWithoutValidation("Accept", CurrentAcceptType);
-                response.Content = new StringContent(SerializeResponse(oo), Encoding.UTF8);
-                response.Content.Headers.TryAddWithoutValidation("Content-Type", IsAccceptTypeJSON ? FHIRCONTENTTYPEJSON : FHIRCONTENTTYPEXML);
-                response.Content.Headers.LastModified = DateTimeOffset.Now;
-                return response;
-            }
-        }
-        [HttpPost]
-        [Route("{resource}")]
-        public async Task<HttpResponseMessage> Post(string resource)
-        {
-            return await Upsert(resource);
-        }
-        [HttpPut]
-        [Route("{resource}")]
-        public async Task<HttpResponseMessage> Put(string resource)
-        {
-            return await Upsert(resource);
-        }
-        [HttpGet]
-        [Route("{resource}")]
-        public async Task<HttpResponseMessage> Get(string resource)
-        {
-            string respval = null;
-            if (Request.RequestUri.AbsolutePath.ToLower().EndsWith("metadata"))
-            {
-                respval = SerializeResponse(FhirHelper.GenerateCapabilityStatement(Request.RequestUri.AbsoluteUri));
-            }
-            else
-            {
-                NameValueCollection nvc = HttpUtility.ParseQueryString(Request.RequestUri.Query);
-                string _id = nvc["_id"];
-                string _nextpage =nvc["_nextpage"];
-                string _count = nvc["_count"];
-                if (_count==null) _count = "100";
-                string _querytotal = nvc["_querytotal"];
-                if (_querytotal == null) _querytotal = "-1";
-                IEnumerable<Resource> retVal = null;
-                ResourceQueryResult searchrslt = null;
-                int iqueryTotal = 0;
-                if (string.IsNullOrEmpty(_id))
-                {
-                    string query = FhirParmMapper.Instance.GenerateQuery(storage, resource,nvc);
-                    searchrslt = await storage.QueryFHIRResource(query, resource, int.Parse(_count), _nextpage,long.Parse(_querytotal));
-                    retVal = searchrslt.Resources;
-                    iqueryTotal = (int)searchrslt.Total;
+		//TODO: Inject Storage Implementation
+		public ResourceController(IFhirStore store)
+		{
+			var s = CloudConfigurationManager.GetSetting("FHIRParserMode");
+			var strict = s == null || s.Equals("strict", StringComparison.CurrentCultureIgnoreCase);
+			_storage = store;
+			var parsersettings = new ParserSettings
+			{
+				AcceptUnknownMembers = !strict,
+				AllowUnrecognizedEnums = !strict
+			};
+			_jsonparser = new FhirJsonParser(parsersettings);
+			_xmlparser = new FhirXmlParser(parsersettings);
+		}
 
-                } else
-                {
-                    retVal = new List<Resource>();
-                    var r = await storage.LoadFHIRResource(_id, resource);
-                    if (r != null) ((List<Resource>)retVal).Add(r);
-                    iqueryTotal = retVal.Count();
-                }
-                var baseurl = Request.RequestUri.Scheme + "://" + Request.RequestUri.Authority + "/" + resource;
-                Bundle results = new Bundle();
-                results.Id = Guid.NewGuid().ToString();
-                results.Type = Bundle.BundleType.Searchset;
-                results.Total = iqueryTotal;
-                results.Link = new System.Collections.Generic.List<Bundle.LinkComponent>();
-                NameValueCollection qscoll = Request.RequestUri.ParseQueryString();
-                qscoll.Remove("_count");
-                qscoll.Remove("_querytotal");
-                qscoll.Add("_querytotal", searchrslt.Total.ToString());
-                qscoll.Add("_count", _count);
-                
-                results.Link.Add(new Bundle.LinkComponent() { Url = baseurl + "?" + qscoll.ToString(), Relation = "self" });
-                
-                if (searchrslt.ContinuationToken != null)
-                {
-                    qscoll.Remove("_nextpage");
-                    qscoll.Add("_nextpage", searchrslt.ContinuationToken);
-                    results.Link.Add(new Bundle.LinkComponent() { Url = baseurl + "?" + qscoll.ToString(), Relation = "next" });
-                }
-                
-                results.Entry = new System.Collections.Generic.List<Bundle.EntryComponent>();
-                Bundle.SearchComponent match = new Bundle.SearchComponent();
-                match.Mode = Bundle.SearchEntryMode.Match;
-                Bundle.SearchComponent include = new Bundle.SearchComponent();
-                include.Mode = Bundle.SearchEntryMode.Include;
-                foreach (Resource p in retVal)
-                {
-                   
+		private static string CurrentAcceptType
+		{
+			get
+			{
+				var at = HttpContext.Current.Request.QueryString["_format"];
+				if (string.IsNullOrEmpty(at))
+					at = (HttpContext.Current.Request.AcceptTypes ?? throw new InvalidOperationException()).First();
+				if (!string.IsNullOrEmpty(at))
+				{
+					if (at.Equals("text/html") || at.Equals("xml")) at = "application/xml";
+					if (at.Equals("*/*") || at.Equals("json")) at = "application/json";
+				}
+				else
+				{
+					at = "application/json";
+				}
 
-                    results.Entry.Add(new Bundle.EntryComponent() { Resource = p, FullUrl = FhirHelper.GetFullURL(Request, p), Search = match});
-                    var includes = await FhirHelper.ProcessIncludes(p, nvc, storage);
-                    foreach(Resource r in includes)
-                    {
-                        results.Entry.Add(new Bundle.EntryComponent() { Resource = r, FullUrl = FhirHelper.GetFullURL(Request, r), Search = include });
-                    }
-                }
+				return at;
+			}
+		}
 
-                if (retVal != null)
-                {
-                    respval = SerializeResponse(results);
-                }
-            }
-            var response = this.Request.CreateResponse(HttpStatusCode.OK);
-            response.Headers.TryAddWithoutValidation("Accept", CurrentAcceptType);
-            
-            response.Content = new StringContent(respval, Encoding.UTF8);
-            response.Content.Headers.TryAddWithoutValidation("Content-Type", IsAccceptTypeJSON ? FHIRCONTENTTYPEJSON : FHIRCONTENTTYPEXML);
-            return response;
-        }
-        [HttpDelete]
-        [Route("{resource}/{id}")]
-        public async Task<HttpResponseMessage> Delete(string resource, string id)
-        {
-            HttpResponseMessage response = null;
-            string respval = "";
-            var retVal = await storage.LoadFHIRResource(id, resource);
-            if (retVal != null)
-            {
-                var del = await storage.DeleteFHIRResource(retVal);
-                response = this.Request.CreateResponse(HttpStatusCode.NoContent);
-                response.Headers.TryAddWithoutValidation("Accept", CurrentAcceptType);
-                
-                response.Content = new StringContent(respval, Encoding.UTF8);
-                response.Headers.Add("ETag", "W/\"" + retVal.Meta.VersionId + "\"");
+		private static string IsMatchVersionId => HttpContext.Current.Request.Headers["If-Match"];
 
-            } else {
-                response = this.Request.CreateResponse(HttpStatusCode.NotFound);
-                response.Content = new StringContent("", Encoding.UTF8);
-            }
-            response.Content.Headers.TryAddWithoutValidation("Content-Type", IsAccceptTypeJSON ? FHIRCONTENTTYPEJSON : FHIRCONTENTTYPEXML);
-            return response;
-        }
-        [HttpPut]
-        [Route("{resource}/{id}")]
-        public async Task<HttpResponseMessage> PutWithId(string resource, string id)
-        {
-            return await Upsert(resource,id);
-        }
-        [HttpPost]
-        [Route("{resource}/{id}")]
-        public async Task<HttpResponseMessage> PostWIthId(string resource, string id)
-        {
-            return await Upsert(resource,id);
-        }
-        [HttpGet]
-        [Route("{resource}/{id}")]
-        public async Task<HttpResponseMessage> Get(string resource, string id)
-        {
-            if (Request.Method == HttpMethod.Post)
-            {
-                return await Upsert(resource);
-            }
-            if (Request.Method == HttpMethod.Put)
-            {
-                return await Upsert(resource);
-            }
+		private static bool IsContentTypeJson => HttpContext.Current.Request.ContentType.ToLower().Contains("json");
 
-            HttpResponseMessage response = null;
-            string respval = "";
-            var retVal = await storage.LoadFHIRResource(id, resource);
-            if (retVal != null)
-            {
-                respval = SerializeResponse(retVal);
-                response = this.Request.CreateResponse(HttpStatusCode.OK);
-                response.Headers.TryAddWithoutValidation("Accept", CurrentAcceptType);
-                response.Content = new StringContent(respval, Encoding.UTF8);
-                response.Content.Headers.LastModified = retVal.Meta.LastUpdated;
-                response.Headers.Add("ETag", "W/\"" + retVal.Meta.VersionId + "\"");
+		private static bool IsContentTypeXml => HttpContext.Current.Request.ContentType.ToLower().Contains("xml");
+		private static bool IsAccceptTypeJson => CurrentAcceptType.ToLower().Contains("json");
 
-            } else {
-                response = this.Request.CreateResponse(HttpStatusCode.NotFound);
-                response.Content = new StringContent("", Encoding.UTF8);
-            }
-            response.Content.Headers.TryAddWithoutValidation("Content-Type", IsAccceptTypeJSON ? FHIRCONTENTTYPEJSON : FHIRCONTENTTYPEXML);
-            return response;
-        }
-        // GET: Historical Speciic Version
-        [HttpGet]
-        [Route("{resource}/{id}/_history/{vid}")]
-        public HttpResponseMessage GetHistory(string resource, string id, string vid)
-        {
-            HttpResponseMessage response = null;
-            string respval = "";
-            string item = storage.HistoryStore.GetResourceHistoryItem(resource, id, vid);
-            if (item != null)
-            {
-                Resource retVal = (Resource)jsonparser.Parse(item, FhirHelper.ResourceTypeFromString(resource));
-                if (retVal != null) respval = SerializeResponse(retVal);
-                response = this.Request.CreateResponse(HttpStatusCode.OK);
-                response.Headers.TryAddWithoutValidation("Accept", CurrentAcceptType);
-                response.Headers.Add("ETag", "W/\"" + retVal.Meta.VersionId + "\"");
-                response.Content = new StringContent(respval, Encoding.UTF8);
-                response.Content.Headers.LastModified = retVal.Meta.LastUpdated;
-            }
-            else
-            {
-                response = this.Request.CreateResponse(HttpStatusCode.NotFound);
-                response.Content = new StringContent("", Encoding.UTF8);
-            }
-            response.Content.Headers.TryAddWithoutValidation("Content-Type", IsAccceptTypeJSON ? FHIRCONTENTTYPEJSON : FHIRCONTENTTYPEXML);
-            return response;
-        }
-        // GET: Historical Speciic Version
-        [HttpGet]
-        [Route("{resource}/{id}/_history")]
-        public HttpResponseMessage GetHistoryComplete(string resource, string id)
-        {
-            string respval = "";
-            IEnumerable<string> history= storage.HistoryStore.GetResourceHistory(resource, id);
-            //Create Return Bundle
-            Bundle results = new Bundle();
-            results.Id = Guid.NewGuid().ToString();
-            results.Type = Bundle.BundleType.History;
-            results.Total = history.Count();
-            results.Link = new System.Collections.Generic.List<Bundle.LinkComponent>();
-            results.Link.Add(new Bundle.LinkComponent() { Url = Request.RequestUri.GetLeftPart(UriPartial.Authority), Relation = "self" });
-            results.Entry = new System.Collections.Generic.List<Bundle.EntryComponent>();
-            //Add History Items to Bundle
-            foreach (string h in history)
-            {
-                //todo
-                var r = (Resource)jsonparser.Parse(h, FhirHelper.ResourceTypeFromString(resource));
-                results.Entry.Add(new Bundle.EntryComponent() { Resource = r, FullUrl = FhirHelper.GetFullURL(Request, r) });
-               
-            }
-           
-            
-            //Serialize and Return Bundle
-            respval = SerializeResponse(results);
-            var response = this.Request.CreateResponse(HttpStatusCode.OK);
-            response.Headers.TryAddWithoutValidation("Accept", CurrentAcceptType);
-            
-            response.Content = new StringContent(respval, Encoding.UTF8);
-            response.Content.Headers.TryAddWithoutValidation("Content-Type", IsAccceptTypeJSON ? FHIRCONTENTTYPEJSON : FHIRCONTENTTYPEXML);
-            return response;
-        }
-        private string CurrentAcceptType {
-            get {
-                string at = System.Web.HttpContext.Current.Request.QueryString["_format"];
-                if (String.IsNullOrEmpty(at)) at = System.Web.HttpContext.Current.Request.AcceptTypes.First();
-                if (!String.IsNullOrEmpty(at)) {
-                    if (at.Equals("text/html") || at.Equals("xml")) at = "application/xml";
-                    if (at.Equals("*/*") || at.Equals("json")) at = "application/json"; 
-                } else
-                {
-                    at = "application/json";
-                }
-                return at;
-           }
-        }
-        private string IsMatchVersionId { get { return System.Web.HttpContext.Current.Request.Headers["If-Match"]; } }
-        private bool IsContentTypeJSON {
-            get {
-                return System.Web.HttpContext.Current.Request.ContentType.ToLower().Contains("json");
-            }
-        }
+		private async Task<ResourceResponse> ProcessSingleResource(Resource p, string resourceType,
+			string matchversionid = null)
+		{
+			//Version conflict detection
+			if (!string.IsNullOrEmpty(matchversionid))
+			{
+				var cv = await _storage.LoadFhirResource(p.Id, resourceType);
+				if (cv == null || !matchversionid.Equals(cv.Meta.VersionId))
+				{
+					var oo = new OperationOutcome {Issue = new List<OperationOutcome.IssueComponent>()};
+					var ic = new OperationOutcome.IssueComponent
+					{
+						Severity = OperationOutcome.IssueSeverity.Error,
+						Code = OperationOutcome.IssueType.Exception,
+						Diagnostics = "Version conflict current resource version of " + resourceType + "/" + p.Id + " is " +
+						              cv.Meta.VersionId
+					};
+					oo.Issue.Add(ic);
+					return new ResourceResponse(oo, -1);
+				}
+			}
 
-        private bool IsContentTypeXML { get { return System.Web.HttpContext.Current.Request.ContentType.ToLower().Contains("xml"); } }
-        private bool IsAccceptTypeJSON { get { return CurrentAcceptType.ToLower().Contains("json"); } }
-        private string SerializeResponse(Resource retVal)
-        {
-            
-           
-            if (CurrentAcceptType.ToLower().Contains("json"))
-                return FhirSerializer.SerializeToJson(retVal);
-            else if (CurrentAcceptType.ToLower().Contains("xml"))
-                return FhirSerializer.SerializeResourceToXml(retVal);
-            else
-                throw new System.Web.HttpException((int)HttpStatusCode.NotAcceptable, "Accept Type not Supported must be */xml or */json");
-        }
+			//Prepare for Insert/update and Version
+			if (string.IsNullOrEmpty(p.Id)) p.Id = Guid.NewGuid().ToString();
+			p.Meta = new Meta
+			{
+				VersionId = Guid.NewGuid().ToString(),
+				LastUpdated = DateTimeOffset.UtcNow
+			};
+			var rslt = await _storage.UpsertFhirResource(p);
+			return new ResourceResponse(p, rslt);
+		}
 
-        protected string GetBaseURL()
-        {
-            return Request.RequestUri.Scheme + "://" + Request.RequestUri.Host + ((Request.RequestUri.Port != 80 || Request.RequestUri.Port != 443) ? ":" + Request.RequestUri.Port.ToString() : "");
-        }
-      
+		private async Task<HttpResponseMessage> Upsert(string resourceType, string headerid = null)
+		{
+			try
+			{
+				var raw = await Request.Content.ReadAsStringAsync();
+				BaseFhirParser parser;
+				if (IsContentTypeJson) parser = _jsonparser;
+				else if (IsContentTypeXml) parser = _xmlparser;
+				else throw new Exception("Invalid Content-Type must be application/fhir+json or application/fhir+xml");
 
-    }
+			
+
+
+				var reader = JsonDomFhirNavigator.Create(raw);
+
+				var p = (Resource) parser.Parse(reader, FhirHelper.ResourceTypeFromString(resourceType));
+
+				Enum.TryParse(resourceType, out ResourceType rt);
+				if (p.ResourceType != rt)
+				{
+					var oo = new OperationOutcome {Issue = new List<OperationOutcome.IssueComponent>()};
+					var ic = new OperationOutcome.IssueComponent
+					{
+						Severity = OperationOutcome.IssueSeverity.Error,
+						Code = OperationOutcome.IssueType.Exception,
+						Diagnostics = "Resource provide is not of type " + resourceType
+					};
+					oo.Issue.Add(ic);
+					var respconf = Request.CreateResponse(HttpStatusCode.BadRequest);
+					respconf.Content = new StringContent(SerializeResponse(oo), Encoding.UTF8);
+					respconf.Content.Headers.LastModified = DateTimeOffset.Now;
+					respconf.Headers.TryAddWithoutValidation("Accept", CurrentAcceptType);
+					respconf.Content.Headers.TryAddWithoutValidation("Content-Type",
+						IsAccceptTypeJson ? Fhircontenttypejson : Fhircontenttypexml);
+					return respconf;
+				}
+
+				if (string.IsNullOrEmpty(p.Id) && headerid != null) p.Id = headerid;
+				//Store resource regardless of type
+				var dbresp = await ProcessSingleResource(p, resourceType, IsMatchVersionId);
+				p = dbresp.Resource;
+				var response = Request.CreateResponse(dbresp.Response == 1 ? HttpStatusCode.Created : HttpStatusCode.OK);
+				response.Content = new StringContent("", Encoding.UTF8);
+				response.Content.Headers.LastModified = p.Meta.LastUpdated;
+				response.Headers.Add("Location", Request.RequestUri.AbsoluteUri + (headerid == null ? "/" + p.Id : ""));
+				response.Headers.Add("ETag", "W/\"" + p.Meta.VersionId + "\"");
+
+				//Extract and Save each Resource in bundle if it's a batch type
+				if (p.ResourceType != ResourceType.Bundle || ((Bundle) p).Type != Bundle.BundleType.Batch) return response;
+				var source = (Bundle) p;
+				/*Bundle results = new Bundle();
+					results.Id = Guid.NewGuid().ToString();
+					results.Type = Bundle.BundleType.Searchset;
+					results.Total = source.Entry.Count();
+					results.Link = new System.Collections.Generic.List<Bundle.LinkComponent>();
+					results.Link.Add(new Bundle.LinkComponent() { Url = Request.RequestUri.AbsoluteUri, Relation = "original" });
+					results.Entry = new System.Collections.Generic.List<Bundle.EntryComponent>();*/
+				foreach (var ec in source.Entry)
+				{
+					await ProcessSingleResource(ec.Resource, Enum.GetName(typeof(ResourceType), ec.Resource.ResourceType));
+					//results.Entry.Add(new Bundle.EntryComponent() { Resource = rslt.Resource, FullUrl = FhirHelper.GetFullURL(Request, rslt.Resource) });
+				}
+
+				return response;
+			}
+			catch (Exception e)
+			{
+				var oo = new OperationOutcome {Issue = new List<OperationOutcome.IssueComponent>()};
+				var ic = new OperationOutcome.IssueComponent
+				{
+					Severity = OperationOutcome.IssueSeverity.Error,
+					Code = OperationOutcome.IssueType.Exception,
+					Diagnostics = e.Message
+				};
+				oo.Issue.Add(ic);
+				var response = Request.CreateResponse(HttpStatusCode.BadRequest);
+				response.Headers.TryAddWithoutValidation("Accept", CurrentAcceptType);
+				response.Content = new StringContent(SerializeResponse(oo), Encoding.UTF8);
+				response.Content.Headers.TryAddWithoutValidation("Content-Type",
+					IsAccceptTypeJson ? Fhircontenttypejson : Fhircontenttypexml);
+				response.Content.Headers.LastModified = DateTimeOffset.Now;
+				return response;
+			}
+		}
+
+		[HttpPost]
+		[Route("{resource}")]
+		public async Task<HttpResponseMessage> Post(string resource)
+		{
+			return await Upsert(resource);
+		}
+
+		[HttpPut]
+		[Route("{resource}")]
+		public async Task<HttpResponseMessage> Put(string resource)
+		{
+			return await Upsert(resource);
+		}
+
+		[HttpGet]
+		[Route("{resource}")]
+		public async Task<HttpResponseMessage> Get(string resource)
+		{
+			string respval;
+			if (Request.RequestUri.AbsolutePath.ToLower().EndsWith("metadata"))
+			{
+				respval = SerializeResponse(FhirHelper.GenerateCapabilityStatement(Request.RequestUri.AbsoluteUri));
+			}
+			else
+			{
+				var nvc = HttpUtility.ParseQueryString(Request.RequestUri.Query);
+				var id = nvc["_id"];
+				var nextpage = nvc["_nextpage"];
+				var count = nvc["_count"] ?? "100";
+				var querytotal = nvc["_querytotal"] ?? "-1";
+				IEnumerable<Resource> retVal;
+				ResourceQueryResult searchrslt = null;
+				int iqueryTotal;
+				if (string.IsNullOrEmpty(id))
+				{
+					var query = FhirParmMapper.Instance.GenerateQuery(_storage, resource, nvc);
+					searchrslt =
+						await _storage.QueryFhirResource(query, resource, int.Parse(count), nextpage, long.Parse(querytotal));
+					retVal = searchrslt.Resources;
+					iqueryTotal = (int) searchrslt.Total;
+				}
+				else
+				{
+					retVal = new List<Resource>();
+					var r = await _storage.LoadFhirResource(id, resource);
+					if (r != null) ((List<Resource>) retVal).Add(r);
+					iqueryTotal = retVal.Count();
+				}
+
+				var baseurl = Request.RequestUri.Scheme + "://" + Request.RequestUri.Authority + "/" + resource;
+				var results = new Bundle
+				{
+					Id = Guid.NewGuid().ToString(),
+					Type = Bundle.BundleType.Searchset,
+					Total = iqueryTotal,
+					Link = new List<Bundle.LinkComponent>()
+				};
+				var qscoll = Request.RequestUri.ParseQueryString();
+				qscoll.Remove("_count");
+				qscoll.Remove("_querytotal");
+				qscoll.Add("_querytotal", searchrslt.Total.ToString());
+				qscoll.Add("_count", count);
+
+				results.Link.Add(new Bundle.LinkComponent {Url = baseurl + "?" + qscoll, Relation = "self"});
+
+				if (searchrslt.ContinuationToken != null)
+				{
+					qscoll.Remove("_nextpage");
+					qscoll.Add("_nextpage", searchrslt.ContinuationToken);
+					results.Link.Add(new Bundle.LinkComponent {Url = baseurl + "?" + qscoll, Relation = "next"});
+				}
+
+				results.Entry = new List<Bundle.EntryComponent>();
+				var match = new Bundle.SearchComponent {Mode = Bundle.SearchEntryMode.Match};
+				var include = new Bundle.SearchComponent {Mode = Bundle.SearchEntryMode.Include};
+				foreach (var p in retVal)
+				{
+					results.Entry.Add(new Bundle.EntryComponent
+					{
+						Resource = p,
+						FullUrl = FhirHelper.GetFullUrl(Request, p),
+						Search = match
+					});
+					var includes = await FhirHelper.ProcessIncludes(p, nvc, _storage);
+					foreach (var r in includes)
+						results.Entry.Add(new Bundle.EntryComponent
+						{
+							Resource = r,
+							FullUrl = FhirHelper.GetFullUrl(Request, r),
+							Search = include
+						});
+				}
+
+				respval = SerializeResponse(results);
+			}
+
+			var response = Request.CreateResponse(HttpStatusCode.OK);
+			response.Headers.TryAddWithoutValidation("Accept", CurrentAcceptType);
+
+			response.Content = new StringContent(respval, Encoding.UTF8);
+			response.Content.Headers.TryAddWithoutValidation("Content-Type",
+				IsAccceptTypeJson ? Fhircontenttypejson : Fhircontenttypexml);
+			return response;
+		}
+
+		[HttpDelete]
+		[Route("{resource}/{id}")]
+		public async Task<HttpResponseMessage> Delete(string resource, string id)
+		{
+			HttpResponseMessage response;
+			const string respval = "";
+			var retVal = await _storage.LoadFhirResource(id, resource);
+			if (retVal != null)
+			{
+				await _storage.DeleteFhirResource(retVal);
+				response = Request.CreateResponse(HttpStatusCode.NoContent);
+				response.Headers.TryAddWithoutValidation("Accept", CurrentAcceptType);
+
+				response.Content = new StringContent(respval, Encoding.UTF8);
+				response.Headers.Add("ETag", "W/\"" + retVal.Meta.VersionId + "\"");
+			}
+			else
+			{
+				response = Request.CreateResponse(HttpStatusCode.NotFound);
+				response.Content = new StringContent("", Encoding.UTF8);
+			}
+
+			response.Content.Headers.TryAddWithoutValidation("Content-Type",
+				IsAccceptTypeJson ? Fhircontenttypejson : Fhircontenttypexml);
+			return response;
+		}
+
+		[HttpPut]
+		[Route("{resource}/{id}")]
+		public async Task<HttpResponseMessage> PutWithId(string resource, string id)
+		{
+			return await Upsert(resource, id);
+		}
+
+		[HttpPost]
+		[Route("{resource}/{id}")]
+		public async Task<HttpResponseMessage> PostWIthId(string resource, string id)
+		{
+			return await Upsert(resource, id);
+		}
+
+		[HttpGet]
+		[Route("{resource}/{id}")]
+		public async Task<HttpResponseMessage> Get(string resource, string id)
+		{
+			if (Request.Method == HttpMethod.Post) return await Upsert(resource);
+			if (Request.Method == HttpMethod.Put) return await Upsert(resource);
+
+			var retVal = await _storage.LoadFhirResource(id, resource);
+			var respval = SerializeResponse(retVal);
+			var response = Request.CreateResponse(HttpStatusCode.OK);
+			response.Headers.TryAddWithoutValidation("Accept", CurrentAcceptType);
+			response.Content = new StringContent(respval, Encoding.UTF8);
+			response.Content.Headers.LastModified = retVal.Meta.LastUpdated;
+			response.Headers.Add("ETag", "W/\"" + retVal.Meta.VersionId + "\"");
+
+			response.Content.Headers.TryAddWithoutValidation("Content-Type",
+				IsAccceptTypeJson ? Fhircontenttypejson : Fhircontenttypexml);
+			return response;
+		}
+
+		// GET: Historical Speciic Version
+		[HttpGet]
+		[Route("{resource}/{id}/_history/{vid}")]
+		public HttpResponseMessage GetHistory(string resource, string id, string vid)
+		{
+			HttpResponseMessage response;
+			var respval = "";
+			var item = _storage.HistoryStore.GetResourceHistoryItem(resource, id, vid);
+			{
+				var retVal = (Resource) _jsonparser.Parse(item, FhirHelper.ResourceTypeFromString(resource));
+				if (retVal != null) respval = SerializeResponse(retVal);
+				response = Request.CreateResponse(HttpStatusCode.OK);
+				response.Headers.TryAddWithoutValidation("Accept", CurrentAcceptType);
+				response.Headers.Add("ETag", "W/\"" + retVal.Meta.VersionId + "\"");
+				response.Content = new StringContent(respval, Encoding.UTF8);
+				response.Content.Headers.LastModified = retVal.Meta.LastUpdated;
+			}
+
+			response.Content.Headers.TryAddWithoutValidation("Content-Type",
+				IsAccceptTypeJson ? Fhircontenttypejson : Fhircontenttypexml);
+			return response;
+		}
+
+		// GET: Historical Speciic Version
+		[HttpGet]
+		[Route("{resource}/{id}/_history")]
+		public HttpResponseMessage GetHistoryComplete(string resource, string id)
+		{
+			var history = _storage.HistoryStore.GetResourceHistory(resource, id);
+			//Create Return Bundle
+			var results = new Bundle
+			{
+				Id = Guid.NewGuid().ToString(),
+				Type = Bundle.BundleType.History,
+				Total = history.Count(),
+				Link = new List<Bundle.LinkComponent>
+				{
+					new Bundle.LinkComponent
+					{
+						Url = Request.RequestUri.GetLeftPart(UriPartial.Authority),
+						Relation = "self"
+					}
+				},
+				Entry = new List<Bundle.EntryComponent>()
+			};
+			//Add History Items to Bundle
+			foreach (var h in history)
+			{
+				//todo
+				var r = (Resource) _jsonparser.Parse(h, FhirHelper.ResourceTypeFromString(resource));
+				results.Entry.Add(new Bundle.EntryComponent {Resource = r, FullUrl = FhirHelper.GetFullUrl(Request, r)});
+			}
+
+
+			//Serialize and Return Bundle
+			var respval = SerializeResponse(results);
+			var response = Request.CreateResponse(HttpStatusCode.OK);
+			response.Headers.TryAddWithoutValidation("Accept", CurrentAcceptType);
+
+			response.Content = new StringContent(respval, Encoding.UTF8);
+			response.Content.Headers.TryAddWithoutValidation("Content-Type",
+				IsAccceptTypeJson ? Fhircontenttypejson : Fhircontenttypexml);
+			return response;
+		}
+
+		private static string SerializeResponse(Base retVal)
+		{
+			if (CurrentAcceptType.ToLower().Contains("json"))
+			{
+				var serialize = new FhirJsonSerializer();
+
+				return serialize.SerializeToString(retVal);
+			}
+
+			if (CurrentAcceptType.ToLower().Contains("xml"))
+			{
+				var serialize = new FhirXmlSerializer();
+				return serialize.SerializeToString(retVal);
+			}
+
+			throw new HttpException((int) HttpStatusCode.NotAcceptable, "Accept Type not Supported must be */xml or */json");
+		}
+
+		protected string GetBaseUrl()
+		{
+			return Request.RequestUri.Scheme + "://" + Request.RequestUri.Host +
+			       (Request.RequestUri.Port != 80 || Request.RequestUri.Port != 443 ? ":" + Request.RequestUri.Port : "");
+		}
+	}
 }

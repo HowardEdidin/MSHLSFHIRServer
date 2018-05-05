@@ -32,8 +32,8 @@ namespace FHIR3APIApp
             // Web API configuration and services
             //Dependency Resolution
             var container = new UnityContainer();
-            container.RegisterType<IFHIRHistoryStore, AzureBlobHistoryStore>(new ContainerControlledLifetimeManager());
-            container.RegisterType<IFHIRStore, AzureDocDBFHIRStore>(new ContainerControlledLifetimeManager());
+            container.RegisterType<IFhirHistoryStore, AzureBlobHistoryStore>(new ContainerControlledLifetimeManager());
+            container.RegisterType<IFhirStore, AzureDocDbfhirStore>(new ContainerControlledLifetimeManager());
             config.DependencyResolver = new UnityResolver(container);
             //Must have Cors enabled
             config.EnableCors();

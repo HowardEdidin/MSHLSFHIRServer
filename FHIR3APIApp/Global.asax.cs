@@ -13,20 +13,16 @@
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Web;
 using System.Web.Http;
-using System.Web.Routing;
 
 namespace FHIR3APIApp
 {
-    public class WebApiApplication : System.Web.HttpApplication
-    {
-        protected void Application_Start()
-        {
-            GlobalConfiguration.Configure(WebApiConfig.Register);
-        }
-    }
+	public class WebApiApplication : HttpApplication
+	{
+		protected void Application_Start()
+		{
+			GlobalConfiguration.Configure(WebApiConfig.Register);
+		}
+	}
 }

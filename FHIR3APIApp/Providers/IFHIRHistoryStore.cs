@@ -13,19 +13,16 @@
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using Hl7.Fhir.Model;
+
 namespace FHIR3APIApp.Providers
 {
-    public interface IFHIRHistoryStore
-    {
-        string GetResourceHistoryItem(string resourceType,string resourceid,string versionid);
-        IEnumerable<string> GetResourceHistory(string resourceType, string resourceId);
-        string InsertResourceHistoryItem(Resource r);
-        void DeleteResourceHistoryItem(Resource r);
-    }
+	public interface IFhirHistoryStore
+	{
+		string GetResourceHistoryItem(string resourceType, string resourceid, string versionid);
+		IEnumerable<string> GetResourceHistory(string resourceType, string resourceId);
+		string InsertResourceHistoryItem(Resource r);
+		void DeleteResourceHistoryItem(Resource r);
+	}
 }

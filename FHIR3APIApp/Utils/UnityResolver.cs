@@ -12,58 +12,57 @@
 * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
-using Unity;
-using Unity.Lifetime;
+
 using System;
 using System.Collections.Generic;
 using System.Web.Http.Dependencies;
+using Unity;
 using Unity.Exceptions;
 
-public class UnityResolver : IDependencyResolver
+namespace FHIR3APIApp.Utils
 {
-    protected IUnityContainer container;
+	public class UnityResolver : IDependencyResolver
+	{
+		protected IUnityContainer Container;
 
-    public UnityResolver(IUnityContainer container)
-    {
-        if (container == null)
-        {
-            throw new ArgumentNullException("container");
-        }
-        this.container = container;
-    }
+		public UnityResolver(IUnityContainer container)
+		{
+			Container = container ?? throw new ArgumentNullException(nameof(container));
+		}
 
-    public object GetService(Type serviceType)
-    {
-        try
-        {
-            return container.Resolve(serviceType);
-        }
-        catch (ResolutionFailedException)
-        {
-            return null;
-        }
-    }
+		public object GetService(Type serviceType)
+		{
+			try
+			{
+				return Container.Resolve(serviceType);
+			}
+			catch (ResolutionFailedException)
+			{
+				return null;
+			}
+		}
 
-    public IEnumerable<object> GetServices(Type serviceType)
-    {
-        try
-        {
-            return container.ResolveAll(serviceType);
-        }
-        catch (ResolutionFailedException)
-        {
-            return new List<object>();
-        }
-    }
+		public IEnumerable<object> GetServices(Type serviceType)
+		{
+			try
+			{
+				return Container.ResolveAll(serviceType);
+			}
+			catch (ResolutionFailedException)
+			{
+				return new List<object>();
+			}
+		}
 
-    public IDependencyScope BeginScope()
-    {
-        var child = container.CreateChildContainer();
-        return new UnityResolver(child);
-    }
+		public IDependencyScope BeginScope()
+		{
+			var child = Container.CreateChildContainer();
+			return new UnityResolver(child);
+		}
 
-    public void Dispose()
-    {
-        container.Dispose();
-    }
+		public void Dispose()
+		{
+			Container.Dispose();
+		}
+	}
 }

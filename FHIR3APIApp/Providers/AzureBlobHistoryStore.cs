@@ -15,124 +15,127 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
-using System.Web;
+using System.Text;
+using System.Threading;
 using Hl7.Fhir.Model;
 using Hl7.Fhir.Serialization;
 using Microsoft.Azure;
-using System.Threading.Tasks;
-using System.Threading;
 using Microsoft.WindowsAzure.Storage;
-using Microsoft.WindowsAzure.Storage.Table;
 using Microsoft.WindowsAzure.Storage.Blob;
-using Microsoft.WindowsAzure.Storage.DataMovement;
-using System.IO;
-using System.Diagnostics;
 
 namespace FHIR3APIApp.Providers
 {
-    public class ResourceThreadContext
-    {
-        public ResourceThreadContext(CloudBlobContainer blob,Resource r, string s)
-        {
-            this.BlobContainer = blob;
-            this.Resource = r;
-            this.Serialized = s;
-        }
-        public CloudBlobContainer BlobContainer { get; set; }
-        public Resource Resource { get; set; }
-        public string Serialized { get; set; }
-        public void ThreadPoolCallback(Object context)
-        {
-            var blob = this.BlobContainer;
-            var r = this.Resource;
-            var s = this.Serialized;
-            var resource = System.Text.Encoding.UTF8.GetBytes(s);
-            CloudBlockBlob blockBlob = blob.GetBlockBlobReference(@Enum.GetName(typeof(ResourceType), r.ResourceType) + "/" + r.Id + "/" + r.Meta.VersionId);
-            using (var stream = new MemoryStream(resource, writable: false))
-            {
-                blockBlob.UploadFromStream(stream);
-            }
-            
-        }
-    }
-    public class AzureBlobHistoryStore : IFHIRHistoryStore
-    {
-        private static string CONTAINER = "fhirhistory";
-        private CloudBlobContainer blob = null;
-        public AzureBlobHistoryStore()
-        {
-          
-                CloudStorageAccount storageAccount = CloudStorageAccount.Parse(CloudConfigurationManager.GetSetting("StorageConnectionString"));
-                // Create the table if it doesn't exist.
-                CloudBlobClient blobClient = storageAccount.CreateCloudBlobClient();
-                blob = blobClient.GetContainerReference(CONTAINER);
-                blob.CreateIfNotExists();
-        }
-       
-        public string InsertResourceHistoryItem(Resource r)
-        {
-            try
-            {
-                string s = FhirSerializer.SerializeToJson(r);
-                ResourceThreadContext rtc = new ResourceThreadContext(blob, r, s);
-                ThreadPool.QueueUserWorkItem(rtc.ThreadPoolCallback,1);
-                return s;
-            }
-            catch (Exception e)
-            {
-                Trace.TraceError("Error inserting history for resource: {0}-{1}-{2} Message:{3}", Enum.GetName(typeof(ResourceType), r.ResourceType),r.Id,r.Meta.VersionId,e.Message);
-                return null;
-            }
-        }
-        public void DeleteResourceHistoryItem(Resource r)
-        {
-            CloudBlockBlob blobSource = blob.GetBlockBlobReference(@Enum.GetName(typeof(ResourceType), r.ResourceType) + "/" + r.Id + "/" + r.Meta.VersionId);
-            bool blobExisted = blobSource.DeleteIfExists();
-            return;
-        }
+	public class ResourceThreadContext
+	{
+		public ResourceThreadContext(CloudBlobContainer blob, Resource r, string s)
+		{
+			BlobContainer = blob;
+			Resource = r;
+			Serialized = s;
+		}
 
-        public IEnumerable<string> GetResourceHistory(string resourceType, string resourceId)
-        {
-            //TODO: Add Paging
-            List<string> retVal = new List<string>();
-            string relativePath = @resourceType + "/" + resourceId;
-             foreach (IListBlobItem blobItem in
-                    blob.ListBlobs(relativePath, true, BlobListingDetails.All).OfType<CloudBlob>().OrderByDescending(b => b.Properties.LastModified))
-            {
-                string[] spl = GetFileNameFromBlobURI(blobItem.Uri).Split('/');
+		public CloudBlobContainer BlobContainer { get; set; }
+		public Resource Resource { get; set; }
+		public string Serialized { get; set; }
 
-                if (spl != null && spl.Length > 2) {
-                    string resource = GetResourceHistoryItem(spl[0], spl[1], spl[2]);
-                    if (resource != null) retVal.Add(resource);
-                }
+		public void ThreadPoolCallback(object context)
+		{
+			var blob = BlobContainer;
+			var r = Resource;
+			var s = Serialized;
+			var resource = Encoding.UTF8.GetBytes(s);
+			var blockBlob =
+				blob.GetBlockBlobReference(Enum.GetName(typeof(ResourceType), r.ResourceType) + "/" + r.Id + "/" +
+				                           r.Meta.VersionId);
+			using (var stream = new MemoryStream(resource, false))
+			{
+				blockBlob.UploadFromStream(stream);
+			}
+		}
+	}
 
-            }
-            return retVal;
-           
-        }
-        private string GetFileNameFromBlobURI(Uri theUri)
-        {
-            string theFile = theUri.ToString();
-            int dirIndex = theFile.IndexOf(CONTAINER);
-            string oneFile = theFile.Substring(dirIndex + CONTAINER.Length + 1,
-                theFile.Length - (dirIndex + CONTAINER.Length + 1));
-            return oneFile;
-        }
+	public class AzureBlobHistoryStore : IFhirHistoryStore
+	{
+		private const string Container = "fhirhistory";
+		private readonly CloudBlobContainer _blob;
 
-        public string GetResourceHistoryItem(string resourceType, string resourceid, string versionid)
-        {
-            CloudBlockBlob blockBlob = blob.GetBlockBlobReference(@resourceType + "/" + resourceid + "/" + versionid);
-            string text = null;
-            if (blockBlob.Exists())
-            {
-                using (var memoryStream = new MemoryStream())
-                {
-                    blockBlob.DownloadToStream(memoryStream);
-                    text = System.Text.Encoding.UTF8.GetString(memoryStream.ToArray());
-                }
-            }
-                    return text;
-        }
-    }
+		public AzureBlobHistoryStore()
+		{
+			var storageAccount = CloudStorageAccount.Parse(CloudConfigurationManager.GetSetting("StorageConnectionString"));
+			// Create the table if it doesn't exist.
+			var blobClient = storageAccount.CreateCloudBlobClient();
+			_blob = blobClient.GetContainerReference(Container);
+			_blob.CreateIfNotExists();
+		}
+
+		public string InsertResourceHistoryItem(Resource r)
+		{
+			try
+			{
+				var serialize = new FhirJsonSerializer();
+				
+				var s = serialize.SerializeToString(r);
+				var rtc = new ResourceThreadContext(_blob, r, s);
+				ThreadPool.QueueUserWorkItem(rtc.ThreadPoolCallback, 1);
+				return s;
+			}
+			catch (Exception e)
+			{
+				Trace.TraceError("Error inserting history for resource: {0}-{1}-{2} Message:{3}",
+					Enum.GetName(typeof(ResourceType), r.ResourceType), r.Id, r.Meta.VersionId, e.Message);
+				return null;
+			}
+		}
+
+		public void DeleteResourceHistoryItem(Resource r)
+		{
+			var blobSource =
+				_blob.GetBlockBlobReference(Enum.GetName(typeof(ResourceType), r.ResourceType) + "/" + r.Id + "/" +
+				                           r.Meta.VersionId);
+			blobSource.DeleteIfExists();
+		}
+
+		public IEnumerable<string> GetResourceHistory(string resourceType, string resourceId)
+		{
+			//TODO: Add Paging
+			var relativePath = resourceType + "/" + resourceId;
+
+			return (from IListBlobItem blobItem in _blob.ListBlobs(relativePath, true, BlobListingDetails.All)
+					.OfType<CloudBlob>()
+					.OrderByDescending(b => b.Properties.LastModified)
+				select GetFileNameFromBlobUri(blobItem.Uri).Split('/')
+				into spl
+				where spl.Length > 2
+				select GetResourceHistoryItem(spl[0], spl[1], spl[2])
+				into resource
+				where resource != null
+				select resource).ToList();
+		}
+
+		public string GetResourceHistoryItem(string resourceType, string resourceid, string versionid)
+		{
+			var blockBlob = _blob.GetBlockBlobReference(resourceType + "/" + resourceid + "/" + versionid);
+			if (!blockBlob.Exists()) return null;
+			string text;
+			using (var memoryStream = new MemoryStream())
+			{
+				blockBlob.DownloadToStream(memoryStream);
+				text = Encoding.UTF8.GetString(memoryStream.ToArray());
+			}
+
+			return text;
+		}
+
+		private static string GetFileNameFromBlobUri(Uri theUri)
+		{
+			var theFile = theUri.ToString();
+			var dirIndex = theFile.IndexOf(Container, StringComparison.Ordinal);
+			var oneFile = theFile.Substring(dirIndex + Container.Length + 1,
+				theFile.Length - (dirIndex + Container.Length + 1));
+			return oneFile;
+		}
+	}
 }

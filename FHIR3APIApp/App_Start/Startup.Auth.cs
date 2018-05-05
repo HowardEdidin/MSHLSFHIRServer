@@ -13,35 +13,28 @@
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-using Microsoft.Owin;
-using Microsoft.Owin.Security;
-using Microsoft.Owin.Security.ActiveDirectory;
-using Microsoft.Owin.Security.Infrastructure;
-using Microsoft.Owin.Security.OAuth;
-using Owin;
-using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Configuration;
-using System.Linq;
-using System.Security.Claims;
-using System.Security.Principal;
-using System.Threading.Tasks;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.Owin.Security.ActiveDirectory;
+using Owin;
 
 namespace AuthorizationServer
 {
-    public partial class Startup
-    {
+	public class Startup
+	{
+		public void ConfigureAuth(IAppBuilder app)
+		{
+			app.UseWindowsAzureActiveDirectoryBearerAuthentication(
+				new WindowsAzureActiveDirectoryBearerAuthenticationOptions
+				{
+					TokenValidationParameters = new TokenValidationParameters
+					{
+						ValidAudience = ConfigurationManager.AppSettings["ida:Audience"]
+					},
 
-        public void ConfigureAuth(IAppBuilder app)
-        {
-            app.UseWindowsAzureActiveDirectoryBearerAuthentication(
-                new WindowsAzureActiveDirectoryBearerAuthenticationOptions
-        {
-            Audience = ConfigurationManager.AppSettings["ida:Audience"],
-            Tenant = ConfigurationManager.AppSettings["ida:Tenant"]
-        });
 
-        }
-    }
+					Tenant = ConfigurationManager.AppSettings["ida:Tenant"]
+				});
+		}
+	}
 }

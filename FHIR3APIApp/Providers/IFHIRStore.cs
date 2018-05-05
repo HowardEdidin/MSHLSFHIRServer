@@ -13,23 +13,23 @@
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+using System.Threading.Tasks;
 using Hl7.Fhir.Model;
+
 namespace FHIR3APIApp.Providers
 {
-    public interface IFHIRStore
-    {
-        System.Threading.Tasks.Task<ResourceQueryResult> QueryFHIRResource(string query,string resourceType,int pagesize=100,string continuationToken=null,long querytotal=-1);
-        System.Threading.Tasks.Task<int> UpsertFHIRResource(Resource r);
-        System.Threading.Tasks.Task<Resource> LoadFHIRResource(string identity,string resourceType);
-        System.Threading.Tasks.Task<bool> DeleteFHIRResource(Resource r);
-        System.Threading.Tasks.Task<bool> Initialize(List<Object> parms);
-        string SelectAllQuery { get; }
-        IFHIRHistoryStore HistoryStore { get; }
- 
-    }
+	public interface IFhirStore
+	{
+		string SelectAllQuery { get; }
+		IFhirHistoryStore HistoryStore { get; }
 
+		Task<ResourceQueryResult> QueryFhirResource(string query, string resourceType, int pagesize = 100,
+			string continuationToken = null, long querytotal = -1);
+
+		Task<int> UpsertFhirResource(Resource r);
+		Task<Resource> LoadFhirResource(string identity, string resourceType);
+		Task<bool> DeleteFhirResource(Resource r);
+		Task<bool> Initialize(List<object> parms);
+	}
 }

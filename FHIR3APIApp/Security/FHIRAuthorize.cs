@@ -14,32 +14,32 @@
 */
 
 using System;
-using System.Collections.Generic;
 using System.Linq;
-using System.Web;
-
+using System.Web.Http;
+using System.Web.Http.Controllers;
+using Microsoft.Azure;
 
 namespace FHIR3APIApp.Security
 {
-    public class FHIRAuthorize : System.Web.Http.AuthorizeAttribute
-    {
-        protected override bool IsAuthorized(System.Web.Http.Controllers.HttpActionContext actionContext)
-        {
-            //No Security for Capability Statement
-            if (actionContext.Request.RequestUri.AbsolutePath.EndsWith("metadata")) return true;
-            //Is HeaderSecret required and/or present
-            var hs = Microsoft.Azure.CloudConfigurationManager.GetSetting("HeaderSecret");
-            if (!String.IsNullOrEmpty(hs))
-            {
-                string rh = null;
-                var rhc = actionContext.Request.Headers.GetValues("fhirserversecret");
-                if (rhc != null) rh = rhc.First();
-                if (String.IsNullOrEmpty(rh) || !rh.Equals(hs)) return false;
-            }
-            //Is Authorization enabled
-            var enableauth = Convert.ToBoolean(Microsoft.Azure.CloudConfigurationManager.GetSetting("EnableAuth"));
-            return (enableauth ? base.IsAuthorized(actionContext) : true);
-        }
-        
-    }
+	public class FhirAuthorize : AuthorizeAttribute
+	{
+		protected override bool IsAuthorized(HttpActionContext actionContext)
+		{
+			//No Security for Capability Statement
+			if (actionContext.Request.RequestUri.AbsolutePath.EndsWith("metadata")) return true;
+			//Is HeaderSecret required and/or present
+			var hs = CloudConfigurationManager.GetSetting("HeaderSecret");
+			if (!string.IsNullOrEmpty(hs))
+			{
+				string rh = null;
+				var rhc = actionContext.Request.Headers.GetValues("fhirserversecret");
+				if (rhc != null) rh = rhc.First();
+				if (string.IsNullOrEmpty(rh) || !rh.Equals(hs)) return false;
+			}
+
+			//Is Authorization enabled
+			var enableauth = Convert.ToBoolean(CloudConfigurationManager.GetSetting("EnableAuth"));
+			return !enableauth || base.IsAuthorized(actionContext);
+		}
+	}
 }
