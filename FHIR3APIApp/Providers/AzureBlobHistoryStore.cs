@@ -41,6 +41,11 @@ namespace FHIR4APIApp.Providers
 		public Resource Resource { get; set; }
 		public string Serialized { get; set; }
 
+		/// <exception cref="ArgumentNullException">
+		///         <paramref>
+		///             <name>buffer</name>
+		///         </paramref>
+		///     is null. </exception>
 		public void ThreadPoolCallback(object context)
 		{
 			var blob = BlobContainer;
@@ -60,17 +65,33 @@ namespace FHIR4APIApp.Providers
 	public class AzureBlobHistoryStore : IFhirHistoryStore
 	{
 		private const string Container = "fhirhistory";
-		private readonly CloudBlobContainer _blob;
+		private readonly CloudBlobContainer blob;
 
 		public AzureBlobHistoryStore()
 		{
 			var storageAccount = CloudStorageAccount.Parse(CloudConfigurationManager.GetSetting("StorageConnectionString"));
 			// Create the table if it doesn't exist.
 			var blobClient = storageAccount.CreateCloudBlobClient();
-			_blob = blobClient.GetContainerReference(Container);
-			_blob.CreateIfNotExists();
+			blob = blobClient.GetContainerReference(Container);
+			blob.CreateIfNotExists();
 		}
 
+		/// <exception cref="ArgumentNullException">
+		///         <paramref /> or <paramref /> is null. </exception>
+		/// <exception cref="ArgumentException">
+		///         <paramref>
+		///             <name>enumType</name>
+		///         </paramref>
+		///     is not an <see cref="T:System.Enum" />.-or- <paramref>
+		///         <name>value</name>
+		///     </paramref>
+		///     is neither of type <paramref>
+		///         <name>enumType</name>
+		///     </paramref>
+		///     nor does it have the same underlying type as <paramref>
+		///         <name>enumType</name>
+		///     </paramref>
+		///     . </exception>
 		public string InsertResourceHistoryItem(Resource r)
 		{
 			try
@@ -78,7 +99,7 @@ namespace FHIR4APIApp.Providers
 				var serialize = new FhirJsonSerializer();
 				
 				var s = serialize.SerializeToString(r);
-				var rtc = new ResourceThreadContext(_blob, r, s);
+				var rtc = new ResourceThreadContext(blob, r, s);
 				ThreadPool.QueueUserWorkItem(rtc.ThreadPoolCallback, 1);
 				return s;
 			}
@@ -90,10 +111,15 @@ namespace FHIR4APIApp.Providers
 			}
 		}
 
+		/// <exception cref="ArgumentNullException">
+		///         <paramref>
+		///             <name>enumType</name>
+		///         </paramref>
+		///     or <paramref /> is null. </exception>
 		public void DeleteResourceHistoryItem(Resource r)
 		{
 			var blobSource =
-				_blob.GetBlockBlobReference(Enum.GetName(typeof(ResourceType), r.ResourceType) + "/" + r.Id + "/" +
+				blob.GetBlockBlobReference(Enum.GetName(typeof(ResourceType), r.ResourceType) + "/" + r.Id + "/" +
 				                           r.Meta.VersionId);
 			blobSource.DeleteIfExists();
 		}
@@ -103,7 +129,7 @@ namespace FHIR4APIApp.Providers
 			//TODO: Add Paging
 			var relativePath = resourceType + "/" + resourceId;
 
-			return (from IListBlobItem blobItem in _blob.ListBlobs(relativePath, true, BlobListingDetails.All)
+			return (from IListBlobItem blobItem in blob.ListBlobs(relativePath, true, BlobListingDetails.All)
 					.OfType<CloudBlob>()
 					.OrderByDescending(b => b.Properties.LastModified)
 				select GetFileNameFromBlobUri(blobItem.Uri).Split('/')
@@ -117,7 +143,7 @@ namespace FHIR4APIApp.Providers
 
 		public string GetResourceHistoryItem(string resourceType, string resourceid, string versionid)
 		{
-			var blockBlob = _blob.GetBlockBlobReference(resourceType + "/" + resourceid + "/" + versionid);
+			var blockBlob = blob.GetBlockBlobReference(resourceType + "/" + resourceid + "/" + versionid);
 			if (!blockBlob.Exists()) return null;
 			string text;
 			using (var memoryStream = new MemoryStream())

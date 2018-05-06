@@ -2,6 +2,7 @@ using System.Web.Http;
 using WebActivatorEx;
 using FHIR4APIApp;
 using Swashbuckle.Application;
+using TRex.Metadata;
 
 [assembly: PreApplicationStartMethod(typeof(SwaggerConfig), "Register")]
 
@@ -33,10 +34,11 @@ namespace FHIR4APIApp
                         // additional fields by chaining methods off SingleApiVersion.
                         //
                         c.SingleApiVersion("v1", "FHIR4APIApp");
+						c.ReleaseTheTRex();
 
                         // If you want the output Swagger docs to be indented properly, enable the "PrettyPrint" option.
                         //
-                        //c.PrettyPrint();
+                        c.PrettyPrint();
 
                         // If your API has multiple versions, use "MultipleApiVersions" instead of "SingleApiVersion".
                         // In this case, you must provide a lambda that tells Swashbuckle which actions should be
@@ -94,7 +96,7 @@ namespace FHIR4APIApp
                         // ProductsController will be listed before those from a CustomersController. This is typically
                         // used to customize the order of groupings in the swagger-ui.
                         //
-                        //c.OrderActionGroupsBy(new DescendingAlphabeticComparer());
+	                    c.GroupActionsBy(apiDesc => apiDesc.ActionDescriptor.ActionName);
 
                         // If you annotate Controllers and API Types with
                         // Xml comments (http://msdn.microsoft.com/en-us/library/b2s063f7(v=vs.110).aspx), you can incorporate

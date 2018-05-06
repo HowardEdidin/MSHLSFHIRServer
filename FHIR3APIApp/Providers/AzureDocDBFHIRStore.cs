@@ -71,11 +71,11 @@ namespace FHIR4APIApp.Providers
 			}
 		);
 
-		private readonly ConcurrentDictionary<string, string> _collection = new ConcurrentDictionary<string, string>();
+		private readonly ConcurrentDictionary<string, string> collection = new ConcurrentDictionary<string, string>();
 
-		private bool _databasecreated;
+		private bool databasecreated;
 
-		private readonly FhirJsonParser _parser;
+		private readonly FhirJsonParser parser;
 
 		public AzureDocDbfhirStore(IFhirHistoryStore history)
 		{
@@ -87,7 +87,7 @@ namespace FHIR4APIApp.Providers
 				AllowUnrecognizedEnums = true
 			};
 
-			_parser = new FhirJsonParser(ps);
+			parser = new FhirJsonParser(ps);
 		}
 
 		public string SelectAllQuery => "select value c from c";
@@ -95,14 +95,14 @@ namespace FHIR4APIApp.Providers
 		public IFhirHistoryStore HistoryStore { get; }
 
 
-		public async Task<bool> DeleteFhirResource(Resource r)
+		public async Task<bool> DeleteFhirResourceAsync(Resource r)
 		{
 			//TODO Implement Delete by Identity
-			await CreateDocumentCollectionIfNotExists(DbName, Enum.GetName(typeof(ResourceType), r.ResourceType));
+			await CreateDocumentCollectionIfNotExistsAsync(DbName, Enum.GetName(typeof(ResourceType), r.ResourceType)).ConfigureAwait(false);
 			try
 			{
 				await Client.DeleteDocumentAsync(UriFactory.CreateDocumentUri(DbName,
-					Enum.GetName(typeof(ResourceType), r.ResourceType), r.Id));
+					Enum.GetName(typeof(ResourceType), r.ResourceType), r.Id)).ConfigureAwait(false);
 				return true;
 			}
 			catch (DocumentClientException)
@@ -112,42 +112,44 @@ namespace FHIR4APIApp.Providers
 			}
 		}
 
-		public async Task<int> UpsertFhirResource(Resource r)
+		public async Task<int> UpsertFhirResourceAsync(Resource r)
 		{
-			await CreateDocumentCollectionIfNotExists(DbName, Enum.GetName(typeof(ResourceType), r.ResourceType));
-			var x = await CreateResourceIfNotExists(DbName, r);
+			await CreateDocumentCollectionIfNotExistsAsync(DbName, Enum.GetName(typeof(ResourceType), r.ResourceType)).ConfigureAwait(false);
+			var x = await CreateResourceIfNotExistsAsync(DbName, r).ConfigureAwait(false);
 			return x;
 		}
 
-		public async Task<Resource> LoadFhirResource(string identity, string resourceType)
+		public async Task<Resource> LoadFhirResourceAsync(string identity, string resourceType)
 		{
-			await CreateDocumentCollectionIfNotExists(DbName, resourceType);
-			var result = await LoadFhirResourceObject(DbName, resourceType, identity);
+			await CreateDocumentCollectionIfNotExistsAsync(DbName, resourceType).ConfigureAwait(false);
+			var result = await LoadFhirResourceObjectAsync(DbName, resourceType, identity).ConfigureAwait(false);
 			return result == null ? null :  ConvertDocument(result);
 		}
 
-		public async Task<ResourceQueryResult> QueryFhirResource(string query, string resourceType, int count = 100,
+		/// <inheritdoc />
+		public async Task<ResourceQueryResult> QueryFhirResourceAsync(string query, string resourceType, int count = 100,
 			string continuationToken = null, long querytotal = -1)
 		{
 			var retVal = new List<Resource>();
-			await CreateDocumentCollectionIfNotExists(DbName, resourceType);
+			await CreateDocumentCollectionIfNotExistsAsync(DbName, resourceType).ConfigureAwait(false);
 			var options = new FeedOptions
 			{
 				MaxItemCount = count,
 				RequestContinuation = FhirHelper.UrlBase64Decode(continuationToken)
 			};
-			var collection = UriFactory.CreateDocumentCollectionUri(DbName, resourceType);
-			var docq = Client.CreateDocumentQuery<Document>(collection, query, options).AsDocumentQuery();
-			var rslt = await docq.ExecuteNextAsync<Document>();
+			var collectionId = UriFactory.CreateDocumentCollectionUri(DbName, resourceType);
+			var docq = Client.CreateDocumentQuery<Document>(collectionId, query, options).AsDocumentQuery();
+			var rslt = await docq.ExecuteNextAsync<Document>().ConfigureAwait(false);
 			//Get Totalcount first
 			if (querytotal < 0) querytotal = rslt.Count;
 			foreach (var doc in rslt) retVal.Add(ConvertDocument(doc));
 			return new ResourceQueryResult(retVal, querytotal, FhirHelper.UrlBase64Encode(rslt.ResponseContinuation));
 		}
 
-		public async Task<bool> Initialize(List<object> parms)
+		/// <inheritdoc />
+		public async Task<bool> InitializeAsync(List<object> parms)
 		{
-			await Client.OpenAsync();
+			await Client.OpenAsync().ConfigureAwait(false);
 			return true;
 		}
 
@@ -160,23 +162,23 @@ namespace FHIR4APIApp.Providers
 			obj.Remove("_attachments");
 			obj.Remove("_ts");
 			var rt = (string) obj["resourceType"];
-			var t = (Resource) _parser.Parse(obj.ToString(Formatting.None), FhirHelper.ResourceTypeFromString(rt));
+			var t = (Resource) parser.Parse(obj.ToString(Formatting.None), FhirHelper.ResourceTypeFromString(rt));
 			return t;
 		}
 
-		private async Task<ResourceResponse<Database>> CreateDatabaseIfNotExists(string databaseName)
+		private async Task<ResourceResponse<Database>> CreateDatabaseIfNotExistsAsync(string databaseName)
 		{
-			if (_databasecreated) return null;
-			var x = await Client.CreateDatabaseIfNotExistsAsync(new Database {Id = databaseName});
-			_databasecreated = true;
+			if (databasecreated) return null;
+			var x = await Client.CreateDatabaseIfNotExistsAsync(new Database {Id = databaseName}).ConfigureAwait(false);
+			databasecreated = true;
 			return x;
 		}
 
-		private async Task<IResourceResponse<DocumentCollection>> CreateDocumentCollectionIfNotExists(string databaseName,
+		private async Task<IResourceResponse<DocumentCollection>> CreateDocumentCollectionIfNotExistsAsync(string databaseName,
 			string collectionName)
 		{
-			if (_collection.ContainsKey(collectionName)) return null;
-			await CreateDatabaseIfNotExists(databaseName);
+			if (collection.ContainsKey(collectionName)) return null;
+			await CreateDatabaseIfNotExistsAsync(databaseName).ConfigureAwait(false);
 			var collectionDefinition = new DocumentCollection
 			{
 				Id = collectionName,
@@ -186,16 +188,16 @@ namespace FHIR4APIApp.Providers
 			var x = await Client.CreateDocumentCollectionIfNotExistsAsync(
 				UriFactory.CreateDatabaseUri(databaseName),
 				collectionDefinition,
-				new RequestOptions {OfferThroughput = int.Parse(Dbdtu)});
-			_collection.TryAdd(collectionName, collectionName);
+				new RequestOptions {OfferThroughput = int.Parse(Dbdtu)}).ConfigureAwait(false);
+			collection.TryAdd(collectionName, collectionName);
 			return x;
 		}
 
-		private static async Task<Document> LoadFhirResourceObject(string databaseName, string collectionName, string identity)
+		private static async Task<Document> LoadFhirResourceObjectAsync(string databaseName, string collectionName, string identity)
 		{
 			try
 			{
-				var response = await Client.ReadDocumentAsync(UriFactory.CreateDocumentUri(databaseName, collectionName, identity));
+				var response = await Client.ReadDocumentAsync(UriFactory.CreateDocumentUri(databaseName, collectionName, identity)).ConfigureAwait(false);
 				return response;
 			}
 			catch
@@ -205,7 +207,7 @@ namespace FHIR4APIApp.Providers
 			}
 		}
 
-		private async Task<int> CreateResourceIfNotExists(string databaseName, Resource r)
+		private async Task<int> CreateResourceIfNotExistsAsync(string databaseName, Resource r)
 		{
 			var retstatus = -1; //Error
 
@@ -218,7 +220,7 @@ namespace FHIR4APIApp.Providers
 				if (fh.Length > 500000) return retstatus;
 				var obj = JObject.Parse(fh);
 				var inserted = await Client.UpsertDocumentAsync(
-					UriFactory.CreateDocumentCollectionUri(databaseName, Enum.GetName(typeof(ResourceType), r.ResourceType)), obj);
+					UriFactory.CreateDocumentCollectionUri(databaseName, Enum.GetName(typeof(ResourceType), r.ResourceType)), obj).ConfigureAwait(false);
 				retstatus = inserted.StatusCode == HttpStatusCode.Created ? 1 : 0;
 				return retstatus;
 			}

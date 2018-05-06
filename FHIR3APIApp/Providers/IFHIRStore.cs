@@ -24,12 +24,12 @@ namespace FHIR4APIApp.Providers
 		string SelectAllQuery { get; }
 		IFhirHistoryStore HistoryStore { get; }
 
-		Task<ResourceQueryResult> QueryFhirResource(string query, string resourceType, int pagesize = 100,
+		Task<ResourceQueryResult> QueryFhirResourceAsync(string query, string resourceType, int pagesize = 100,
 			string continuationToken = null, long querytotal = -1);
 
-		Task<int> UpsertFhirResource(Resource r);
-		Task<Resource> LoadFhirResource(string identity, string resourceType);
-		Task<bool> DeleteFhirResource(Resource r);
-		Task<bool> Initialize(List<object> parms);
+		Task<int> UpsertFhirResourceAsync(Resource r);
+		Task<Resource> LoadFhirResourceAsync(string identity, string resourceType);
+		Task<bool> DeleteFhirResourceAsync(Resource r);
+		Task<bool> InitializeAsync(List<object> parms);
 	}
 }

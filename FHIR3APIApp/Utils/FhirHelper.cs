@@ -200,19 +200,19 @@ namespace FHIR4APIApp.Utils
 			return null;
 		}
 
-		public static async Task<string> Read(HttpRequestMessage req)
+		public static async Task<string> ReadAsync(HttpRequestMessage req)
 		{
-			using (var contentStream = await req.Content.ReadAsStreamAsync())
+			using (var contentStream = await req.Content.ReadAsStreamAsync().ConfigureAwait(false))
 			{
 				contentStream.Seek(0, SeekOrigin.Begin);
 				using (var sr = new StreamReader(contentStream))
 				{
-					return sr.ReadToEnd();
+					return await sr.ReadToEndAsync().ConfigureAwait(false);
 				}
 			}
 		}
 
-		public static async Task<List<Resource>> ProcessIncludes(Resource source, NameValueCollection parms, IFhirStore store)
+		public static async Task<List<Resource>> ProcessIncludesAsync(Resource source, NameValueCollection parms, IFhirStore store)
 		{
 			var retVal = new List<Resource>();
 			var includeparm = parms["_include"];
@@ -254,7 +254,7 @@ namespace FHIR4APIApp.Utils
 						var z = isinstance ? x1["instance"]["reference"].ToString() : x1["reference"].ToString();
 						var split = z.Split('/');
 						if (split.Length <= 1) continue;
-						var a1 = await store.LoadFhirResource(split[1], split[0]);
+						var a1 = await store.LoadFhirResourceAsync(split[1], split[0]).ConfigureAwait(false);
 						if (a1 != null) retVal.Add(a1);
 					}
 				}

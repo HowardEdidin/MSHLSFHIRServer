@@ -26,9 +26,9 @@ namespace FHIR4APIApp.Utils
 {
 	public class FhirParmMapper
 	{
-		private static volatile FhirParmMapper _instance;
+		private static volatile FhirParmMapper instance;
 		private static readonly object SyncRoot = new object();
-		private readonly Dictionary<string, string> _pmap = new Dictionary<string, string>();
+		private readonly Dictionary<string, string> pmap = new Dictionary<string, string>();
 
 		private FhirParmMapper()
 		{
@@ -45,7 +45,7 @@ namespace FHIR4APIApp.Utils
 						if (split <= -1) continue;
 						var name = s.Substring(0, split);
 						var value = s.Substring(split + 1);
-						_pmap.Add(name, value);
+						pmap.Add(name, value);
 					}
 			}
 		}
@@ -54,14 +54,14 @@ namespace FHIR4APIApp.Utils
 		{
 			get
 			{
-				if (_instance == null)
+				if (instance == null)
 					lock (SyncRoot)
 					{
-						if (_instance == null)
-							_instance = new FhirParmMapper();
+						if (instance == null)
+							instance = new FhirParmMapper();
 					}
 
-				return _instance;
+				return instance;
 			}
 		}
 
@@ -74,16 +74,16 @@ namespace FHIR4APIApp.Utils
 			foreach (string key in parms)
 			{
 				var value = parms[key];
-				_pmap.TryGetValue(resourceType + "." + key, out var parmdef);
+				pmap.TryGetValue(resourceType + "." + key, out var parmdef);
 				if (parmdef == null) continue;
 				//TODO Handle Setting up Parm Type and process value for prefix and modifiers
 				//Add JOINS to select
-				_pmap.TryGetValue(resourceType + "." + key + ".join", out var join);
+				pmap.TryGetValue(resourceType + "." + key + ".join", out var join);
 				if (join != null)
 					if (!select.ToString().Contains(join))
 						select.Append(" " + join);
 				//Add Where clauses/bind values
-				_pmap.TryGetValue(resourceType + "." + key + ".default", out var querypiece);
+				pmap.TryGetValue(resourceType + "." + key + ".default", out var querypiece);
 				if (querypiece == null) continue;
 				where.Append(where.Length == 0 ? " WHERE (" : " and (");
 				//Handle bind values single or multiple

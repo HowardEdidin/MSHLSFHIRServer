@@ -1,17 +1,4 @@
-﻿/* 
-* 2017 Microsoft Corp
-* 
-* THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS “AS IS”
-* AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
-* THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-* ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE
-* FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
-* HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-* OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-* OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*/
+﻿#region
 
 using System;
 using System.Collections.Generic;
@@ -30,36 +17,41 @@ using FHIR4APIApp.Utils;
 using Hl7.Fhir.Model;
 using Hl7.Fhir.Serialization;
 using Microsoft.Azure;
+using Swashbuckle.Swagger.Annotations;
+using TRex.Metadata;
+
+#endregion
 
 namespace FHIR4APIApp.Controllers
 {
 	[EnableCors("*", "*", "*")]
 	[FhirAuthorize]
-	[RoutePrefix("")]
+	[RoutePrefix("fhir")]
+	[RouteDataValuesOnly]
 	public class ResourceController : ApiController
 	{
 		private const string Fhircontenttypejson = "application/fhir+json;charset=utf-8";
 		private const string Fhircontenttypexml = "application/fhir+xml;charset=utf-8";
 
-		private readonly FhirJsonParser _jsonparser;
+		private readonly FhirJsonParser jsonparser;
 		//private readonly string _parsemode = CloudConfigurationManager.GetSetting("FHIRParserMode");
 
-		private readonly IFhirStore _storage;
-		private readonly FhirXmlParser _xmlparser;
+		private readonly IFhirStore storage;
+		private readonly FhirXmlParser xmlparser;
 
 		//TODO: Inject Storage Implementation
 		public ResourceController(IFhirStore store)
 		{
 			var s = CloudConfigurationManager.GetSetting("FHIRParserMode");
 			var strict = s == null || s.Equals("strict", StringComparison.CurrentCultureIgnoreCase);
-			_storage = store;
+			storage = store;
 			var parsersettings = new ParserSettings
 			{
 				AcceptUnknownMembers = !strict,
 				AllowUnrecognizedEnums = !strict
 			};
-			_jsonparser = new FhirJsonParser(parsersettings);
-			_xmlparser = new FhirXmlParser(parsersettings);
+			jsonparser = new FhirJsonParser(parsersettings);
+			xmlparser = new FhirXmlParser(parsersettings);
 		}
 
 		private static string CurrentAcceptType
@@ -90,13 +82,14 @@ namespace FHIR4APIApp.Controllers
 		private static bool IsContentTypeXml => HttpContext.Current.Request.ContentType.ToLower().Contains("xml");
 		private static bool IsAccceptTypeJson => CurrentAcceptType.ToLower().Contains("json");
 
+
 		private async Task<ResourceResponse> ProcessSingleResource(Resource p, string resourceType,
 			string matchversionid = null)
 		{
 			//Version conflict detection
 			if (!string.IsNullOrEmpty(matchversionid))
 			{
-				var cv = await _storage.LoadFhirResource(p.Id, resourceType);
+				var cv = await storage.LoadFhirResourceAsync(p.Id, resourceType).ConfigureAwait(false);
 				if (cv == null || !matchversionid.Equals(cv.Meta.VersionId))
 				{
 					var oo = new OperationOutcome {Issue = new List<OperationOutcome.IssueComponent>()};
@@ -119,7 +112,7 @@ namespace FHIR4APIApp.Controllers
 				VersionId = Guid.NewGuid().ToString(),
 				LastUpdated = DateTimeOffset.UtcNow
 			};
-			var rslt = await _storage.UpsertFhirResource(p);
+			var rslt = await storage.UpsertFhirResourceAsync(p).ConfigureAwait(false);
 			return new ResourceResponse(p, rslt);
 		}
 
@@ -127,13 +120,14 @@ namespace FHIR4APIApp.Controllers
 		{
 			try
 			{
-				var raw = await Request.Content.ReadAsStringAsync();
+				var raw = await Request.Content.ReadAsStringAsync().ConfigureAwait(false);
 				BaseFhirParser parser;
-				if (IsContentTypeJson) parser = _jsonparser;
-				else if (IsContentTypeXml) parser = _xmlparser;
-				else throw new Exception("Invalid Content-Type must be application/fhir+json or application/fhir+xml");
-
-			
+				if (IsContentTypeJson)
+					parser = jsonparser;
+				else if (IsContentTypeXml)
+					parser = xmlparser;
+				else
+					throw new Exception("Invalid Content-Type must be application/fhir+json or application/fhir+xml");
 
 
 				var reader = JsonDomFhirNavigator.Create(raw);
@@ -162,7 +156,7 @@ namespace FHIR4APIApp.Controllers
 
 				if (string.IsNullOrEmpty(p.Id) && headerid != null) p.Id = headerid;
 				//Store resource regardless of type
-				var dbresp = await ProcessSingleResource(p, resourceType, IsMatchVersionId);
+				var dbresp = await ProcessSingleResource(p, resourceType, IsMatchVersionId).ConfigureAwait(false);
 				p = dbresp.Resource;
 				var response = Request.CreateResponse(dbresp.Response == 1 ? HttpStatusCode.Created : HttpStatusCode.OK);
 				response.Content = new StringContent("", Encoding.UTF8);
@@ -181,10 +175,9 @@ namespace FHIR4APIApp.Controllers
 					results.Link.Add(new Bundle.LinkComponent() { Url = Request.RequestUri.AbsoluteUri, Relation = "original" });
 					results.Entry = new System.Collections.Generic.List<Bundle.EntryComponent>();*/
 				foreach (var ec in source.Entry)
-				{
-					await ProcessSingleResource(ec.Resource, Enum.GetName(typeof(ResourceType), ec.Resource.ResourceType));
-					//results.Entry.Add(new Bundle.EntryComponent() { Resource = rslt.Resource, FullUrl = FhirHelper.GetFullURL(Request, rslt.Resource) });
-				}
+					await ProcessSingleResource(ec.Resource, Enum.GetName(typeof(ResourceType), ec.Resource.ResourceType)).
+						ConfigureAwait(false);
+				//results.Entry.Add(new Bundle.EntryComponent() { Resource = rslt.Resource, FullUrl = FhirHelper.GetFullURL(Request, rslt.Resource) });
 
 				return response;
 			}
@@ -209,22 +202,28 @@ namespace FHIR4APIApp.Controllers
 		}
 
 		[HttpPost]
-		[Route("{resource}")]
-		public async Task<HttpResponseMessage> Post(string resource)
+		[Route("{resourceType}")]
+		[SwaggerOperation("Create Resource", Tags = new[] {"Resource"})]
+		public Task<HttpResponseMessage> Post(string resourceType)
 		{
-			return await Upsert(resource);
+			return Upsert(resourceType);
 		}
 
 		[HttpPut]
-		[Route("{resource}")]
-		public async Task<HttpResponseMessage> Put(string resource)
+		[Route("{resourceType}")]
+		[SwaggerOperation("Update Resource", Tags = new[] {"Resource"})]
+		public Task<HttpResponseMessage> Put(string resourceType)
 		{
-			return await Upsert(resource);
+			return Upsert(resourceType);
 		}
 
+		/// <exception cref="ArgumentNullException">
+		///     <paramref /> is null.
+		/// </exception>
 		[HttpGet]
-		[Route("{resource}")]
-		public async Task<HttpResponseMessage> Get(string resource)
+		[Route("{resourceType}")]
+		[SwaggerOperation("Get Resource", Tags = new[] {"QueryResource"})]
+		public async Task<HttpResponseMessage> Get(string resourceType)
 		{
 			string respval;
 			if (Request.RequestUri.AbsolutePath.ToLower().EndsWith("metadata"))
@@ -243,21 +242,22 @@ namespace FHIR4APIApp.Controllers
 				int iqueryTotal;
 				if (string.IsNullOrEmpty(id))
 				{
-					var query = FhirParmMapper.Instance.GenerateQuery(_storage, resource, nvc);
+					var query = FhirParmMapper.Instance.GenerateQuery(storage, resourceType, nvc);
 					searchrslt =
-						await _storage.QueryFhirResource(query, resource, int.Parse(count), nextpage, long.Parse(querytotal));
+						await storage.QueryFhirResourceAsync(query, resourceType, int.Parse(count), nextpage, long.Parse(querytotal)).
+							ConfigureAwait(false);
 					retVal = searchrslt.Resources;
 					iqueryTotal = (int) searchrslt.Total;
 				}
 				else
 				{
 					retVal = new List<Resource>();
-					var r = await _storage.LoadFhirResource(id, resource);
+					var r = await storage.LoadFhirResourceAsync(id, resourceType).ConfigureAwait(false);
 					if (r != null) ((List<Resource>) retVal).Add(r);
 					iqueryTotal = retVal.Count();
 				}
 
-				var baseurl = Request.RequestUri.Scheme + "://" + Request.RequestUri.Authority + "/" + resource;
+				var baseurl = Request.RequestUri.Scheme + "://" + Request.RequestUri.Authority + "/" + resourceType;
 				var results = new Bundle
 				{
 					Id = Guid.NewGuid().ToString(),
@@ -291,7 +291,7 @@ namespace FHIR4APIApp.Controllers
 						FullUrl = FhirHelper.GetFullUrl(Request, p),
 						Search = match
 					});
-					var includes = await FhirHelper.ProcessIncludes(p, nvc, _storage);
+					var includes = await FhirHelper.ProcessIncludesAsync(p, nvc, storage).ConfigureAwait(false);
 					foreach (var r in includes)
 						results.Entry.Add(new Bundle.EntryComponent
 						{
@@ -314,15 +314,17 @@ namespace FHIR4APIApp.Controllers
 		}
 
 		[HttpDelete]
-		[Route("{resource}/{id}")]
-		public async Task<HttpResponseMessage> Delete(string resource, string id)
+		[Route("{resourceType}/{id}")]
+		[Metadata("Delete", "Deletes a Resource by type and id")]
+		[SwaggerOperation("Delete Resource By Id", Tags = new[] {"Resource"})]
+		public async Task<HttpResponseMessage> Delete(string resourceType, string id)
 		{
 			HttpResponseMessage response;
 			const string respval = "";
-			var retVal = await _storage.LoadFhirResource(id, resource);
+			var retVal = await storage.LoadFhirResourceAsync(id, resourceType).ConfigureAwait(false);
 			if (retVal != null)
 			{
-				await _storage.DeleteFhirResource(retVal);
+				await storage.DeleteFhirResourceAsync(retVal).ConfigureAwait(false);
 				response = Request.CreateResponse(HttpStatusCode.NoContent);
 				response.Headers.TryAddWithoutValidation("Accept", CurrentAcceptType);
 
@@ -341,27 +343,32 @@ namespace FHIR4APIApp.Controllers
 		}
 
 		[HttpPut]
-		[Route("{resource}/{id}")]
-		public async Task<HttpResponseMessage> PutWithId(string resource, string id)
+		[Route("{resourceType}/{id}")]
+		[Metadata("Put", "Updates a Resource by type and id")]
+		[SwaggerOperation("Upsert Resource By Id", Tags = new[] {"ResourceId"})]
+		public Task<HttpResponseMessage> Put(string resourceType, string id)
 		{
-			return await Upsert(resource, id);
+			return Upsert(resourceType, id);
 		}
 
 		[HttpPost]
-		[Route("{resource}/{id}")]
-		public async Task<HttpResponseMessage> PostWIthId(string resource, string id)
+		[Route("{resourceType}/{id}")]
+		[SwaggerOperation("Create Resource with Id", Tags = new[] {"ResourceId"})]
+		public Task<HttpResponseMessage> Post(string resourceType, string id)
 		{
-			return await Upsert(resource, id);
+			return Upsert(resourceType, id);
 		}
 
 		[HttpGet]
-		[Route("{resource}/{id}")]
-		public async Task<HttpResponseMessage> Get(string resource, string id)
+		[Route("{resourceType}/{id}")]
+		[Metadata("Get", "Gets a Resource by type and id")]
+		[SwaggerOperation("Get Resource with Id", Tags = new[] {"ResourceId"})]
+		public async Task<HttpResponseMessage> Get(string resourceType, string id)
 		{
-			if (Request.Method == HttpMethod.Post) return await Upsert(resource);
-			if (Request.Method == HttpMethod.Put) return await Upsert(resource);
+			if (Request.Method == HttpMethod.Post) return await Upsert(resourceType).ConfigureAwait(false);
+			if (Request.Method == HttpMethod.Put) return await Upsert(resourceType).ConfigureAwait(false);
 
-			var retVal = await _storage.LoadFhirResource(id, resource);
+			var retVal = await storage.LoadFhirResourceAsync(id, resourceType).ConfigureAwait(false);
 			var respval = SerializeResponse(retVal);
 			var response = Request.CreateResponse(HttpStatusCode.OK);
 			response.Headers.TryAddWithoutValidation("Accept", CurrentAcceptType);
@@ -376,14 +383,16 @@ namespace FHIR4APIApp.Controllers
 
 		// GET: Historical Speciic Version
 		[HttpGet]
-		[Route("{resource}/{id}/_history/{vid}")]
-		public HttpResponseMessage GetHistory(string resource, string id, string vid)
+		[Route("{resourceType}/{id}/_history/{vid}")]
+		[Metadata("Get", "Gets the Resource History by type, id, and History id")]
+		[SwaggerOperation("Get History", Tags = new[] {"History"})]
+		public HttpResponseMessage VRead(string resourceType, string id, string vid)
 		{
 			HttpResponseMessage response;
 			var respval = "";
-			var item = _storage.HistoryStore.GetResourceHistoryItem(resource, id, vid);
+			var item = storage.HistoryStore.GetResourceHistoryItem(resourceType, id, vid);
 			{
-				var retVal = (Resource) _jsonparser.Parse(item, FhirHelper.ResourceTypeFromString(resource));
+				var retVal = (Resource) jsonparser.Parse(item, FhirHelper.ResourceTypeFromString(resourceType));
 				if (retVal != null) respval = SerializeResponse(retVal);
 				response = Request.CreateResponse(HttpStatusCode.OK);
 				response.Headers.TryAddWithoutValidation("Accept", CurrentAcceptType);
@@ -399,10 +408,12 @@ namespace FHIR4APIApp.Controllers
 
 		// GET: Historical Speciic Version
 		[HttpGet]
-		[Route("{resource}/{id}/_history")]
-		public HttpResponseMessage GetHistoryComplete(string resource, string id)
+		[Route("{resourceType}/{id}/_history")]
+		[Metadata("Get History", "Get the history for Resource by type and id")]
+		[SwaggerOperation("Get History", Tags = new[] {"HistoryComplete"})]
+		public HttpResponseMessage GetHistoryComplete(string resourceType, string id)
 		{
-			var history = _storage.HistoryStore.GetResourceHistory(resource, id);
+			var history = storage.HistoryStore.GetResourceHistory(resourceType, id);
 			//Create Return Bundle
 			var results = new Bundle
 			{
@@ -423,7 +434,7 @@ namespace FHIR4APIApp.Controllers
 			foreach (var h in history)
 			{
 				//todo
-				var r = (Resource) _jsonparser.Parse(h, FhirHelper.ResourceTypeFromString(resource));
+				var r = (Resource) jsonparser.Parse(h, FhirHelper.ResourceTypeFromString(resourceType));
 				results.Entry.Add(new Bundle.EntryComponent {Resource = r, FullUrl = FhirHelper.GetFullUrl(Request, r)});
 			}
 
@@ -443,15 +454,14 @@ namespace FHIR4APIApp.Controllers
 		{
 			if (CurrentAcceptType.ToLower().Contains("json"))
 			{
-				var serialize = new FhirJsonSerializer();
-
-				return serialize.SerializeToString(retVal);
+				var serializer = new FhirJsonSerializer();
+				return serializer.SerializeToString(retVal);
 			}
 
 			if (CurrentAcceptType.ToLower().Contains("xml"))
 			{
-				var serialize = new FhirXmlSerializer();
-				return serialize.SerializeToString(retVal);
+				var serializer = new FhirXmlSerializer();
+				return serializer.SerializeToString(retVal);
 			}
 
 			throw new HttpException((int) HttpStatusCode.NotAcceptable, "Accept Type not Supported must be */xml or */json");

@@ -35,7 +35,7 @@ namespace FHIR4APIApp
             config.EnableCors();
             // Web API routes
             config.MapHttpAttributeRoutes();
-            var fred = FhirParmMapper.Instance;
+	        var fhirParmMapper = FhirParmMapper.Instance;
         }
     }
 }
