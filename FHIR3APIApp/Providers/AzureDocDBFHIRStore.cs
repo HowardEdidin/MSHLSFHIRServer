@@ -63,13 +63,7 @@ namespace FHIR4APIApp.Providers
 		/// <summary>
 		///     The DocumentDB client instance.
 		/// </summary>
-		private static readonly DocumentClient Client = new DocumentClient(new Uri(EndpointUri), PrimaryKey,
-			new ConnectionPolicy
-			{
-				ConnectionMode = ConnectionMode.Direct,
-				ConnectionProtocol = Protocol.Tcp
-			}
-		);
+		private static DocumentClient client;
 
 		private readonly ConcurrentDictionary<string, string> collection = new ConcurrentDictionary<string, string>();
 
@@ -79,6 +73,11 @@ namespace FHIR4APIApp.Providers
 
 		public AzureDocDbfhirStore(IFhirHistoryStore history)
 		{
+			client = new DocumentClient(new Uri(EndpointUri), PrimaryKey, new ConnectionPolicy
+			{
+				ConnectionMode = ConnectionMode.Direct,
+				ConnectionProtocol = Protocol.Tcp
+			});
 			
 			HistoryStore = history;
 			var ps = new ParserSettings
@@ -101,7 +100,7 @@ namespace FHIR4APIApp.Providers
 			await CreateDocumentCollectionIfNotExistsAsync(DbName, Enum.GetName(typeof(ResourceType), r.ResourceType)).ConfigureAwait(false);
 			try
 			{
-				await Client.DeleteDocumentAsync(UriFactory.CreateDocumentUri(DbName,
+				await client.DeleteDocumentAsync(UriFactory.CreateDocumentUri(DbName,
 					Enum.GetName(typeof(ResourceType), r.ResourceType), r.Id)).ConfigureAwait(false);
 				return true;
 			}
@@ -138,7 +137,7 @@ namespace FHIR4APIApp.Providers
 				RequestContinuation = FhirHelper.UrlBase64Decode(continuationToken)
 			};
 			var collectionId = UriFactory.CreateDocumentCollectionUri(DbName, resourceType);
-			var docq = Client.CreateDocumentQuery<Document>(collectionId, query, options).AsDocumentQuery();
+			var docq = client.CreateDocumentQuery<Document>(collectionId, query, options).AsDocumentQuery();
 			var rslt = await docq.ExecuteNextAsync<Document>().ConfigureAwait(false);
 			//Get Totalcount first
 			if (querytotal < 0) querytotal = rslt.Count;
@@ -149,7 +148,7 @@ namespace FHIR4APIApp.Providers
 		/// <inheritdoc />
 		public async Task<bool> InitializeAsync(List<object> parms)
 		{
-			await Client.OpenAsync().ConfigureAwait(false);
+			await client.OpenAsync().ConfigureAwait(false);
 			return true;
 		}
 
@@ -169,7 +168,7 @@ namespace FHIR4APIApp.Providers
 		private async Task<ResourceResponse<Database>> CreateDatabaseIfNotExistsAsync(string databaseName)
 		{
 			if (databasecreated) return null;
-			var x = await Client.CreateDatabaseIfNotExistsAsync(new Database {Id = databaseName}).ConfigureAwait(false);
+			var x = await client.CreateDatabaseIfNotExistsAsync(new Database {Id = databaseName}).ConfigureAwait(false);
 			databasecreated = true;
 			return x;
 		}
@@ -185,7 +184,7 @@ namespace FHIR4APIApp.Providers
 				IndexingPolicy = new IndexingPolicy(new RangeIndex(DataType.String) {Precision = -1})
 			};
 
-			var x = await Client.CreateDocumentCollectionIfNotExistsAsync(
+			var x = await client.CreateDocumentCollectionIfNotExistsAsync(
 				UriFactory.CreateDatabaseUri(databaseName),
 				collectionDefinition,
 				new RequestOptions {OfferThroughput = int.Parse(Dbdtu)}).ConfigureAwait(false);
@@ -197,7 +196,7 @@ namespace FHIR4APIApp.Providers
 		{
 			try
 			{
-				var response = await Client.ReadDocumentAsync(UriFactory.CreateDocumentUri(databaseName, collectionName, identity)).ConfigureAwait(false);
+				var response = await client.ReadDocumentAsync(UriFactory.CreateDocumentUri(databaseName, collectionName, identity)).ConfigureAwait(false);
 				return response;
 			}
 			catch
@@ -219,7 +218,7 @@ namespace FHIR4APIApp.Providers
 				//Overflow remove attachments or error
 				if (fh.Length > 500000) return retstatus;
 				var obj = JObject.Parse(fh);
-				var inserted = await Client.UpsertDocumentAsync(
+				var inserted = await client.UpsertDocumentAsync(
 					UriFactory.CreateDocumentCollectionUri(databaseName, Enum.GetName(typeof(ResourceType), r.ResourceType)), obj).ConfigureAwait(false);
 				retstatus = inserted.StatusCode == HttpStatusCode.Created ? 1 : 0;
 				return retstatus;

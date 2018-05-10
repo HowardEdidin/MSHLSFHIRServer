@@ -71,8 +71,8 @@ namespace FHIR4APIApp.Providers
 		{
 			var storageAccount = CloudStorageAccount.Parse(CloudConfigurationManager.GetSetting("StorageConnectionString"));
 			// Create the table if it doesn't exist.
-			var blobClient = storageAccount.CreateCloudBlobClient();
-			blob = blobClient.GetContainerReference(Container);
+			var blobclient = storageAccount.CreateCloudBlobClient();
+			blob = blobclient.GetContainerReference(Container);
 			blob.CreateIfNotExists();
 		}
 
