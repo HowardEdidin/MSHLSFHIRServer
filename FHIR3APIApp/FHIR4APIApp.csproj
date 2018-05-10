@@ -287,7 +287,6 @@
     <Content Include="Templates\deploy.sh" />
     <Content Include="Templates\parameters.json" />
     <Content Include="Templates\template.json" />
-    <None Include="Properties\PublishProfiles\FHIR4API - Web Deploy.pubxml" />
     <None Include="Properties\PublishProfiles\FHIR4APIApp - Web Deploy.pubxml" />
     <None Include="Web.Debug.config">
       <DependentUpon>Web.config</DependentUpon>
