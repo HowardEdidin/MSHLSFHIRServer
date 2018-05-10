@@ -275,7 +275,6 @@
     <Compile Include="Startup.cs" />
     <Compile Include="Utils\FhirHelper.cs" />
     <Compile Include="Utils\FhirParmMapper.cs" />
-    <Compile Include="Utils\RouteDataValuesOnlyAttribute.cs" />
     <Compile Include="Utils\UnityResolver.cs" />
   </ItemGroup>
   <ItemGroup>
